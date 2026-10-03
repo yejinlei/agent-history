@@ -1,0 +1,17 @@
+{
+ "chgis": {
+  "url": "https://dataverse.harvard.edu/api/access/datafile/1232812",
+  "file": "raw\\chgis\\v3_mysql_distrib.zip",
+  "bytes": 16866967,
+  "sha256": "a0a31c0dcc035e09da99abaa56562fb080371b58556e0d1380cc9313da20e8c0",
+  "cached": false
+ },
+ "cbdb": {
+  "url": "https://dataverse.harvard.edu/api/access/datafile/8940022",
+  "file": "raw\\cbdb\\CBDB_20240208_sqlite.db",
+  "bytes": 877862912,
+  "sha256": "5207eacebbe82ec6c16014b404f4bef0770fb639778b5062cb289bf051fb9a7f",
+  "cached": false
+ },
+ "_updated": "2026-10-04T02:07:38"
+}
