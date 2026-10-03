@@ -95,7 +95,7 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 #    · 实体新增 external_ids{wikidata,cbdb,chgis} 与 origin=core|book
 ```
 
-对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间用 OWL-Time `TimeSpan`；外部锚点统一放 `external_ids`。
+对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
 > 现状提醒：KGREL 里 4917 条边当前全是「书载观点」，本体语义边（发动/败于/建立/出使…共 82 条）尚未进图库，其中 29 条因种子用拼音 id（`xiangyu`）而库里节点是中文名 id（项羽）判为悬空。修复脚本 `scripts/rebuild_seed_edges.py`（干跑 → `--apply`）。
 

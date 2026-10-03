@@ -23,7 +23,7 @@
 | 项目 | 用途 | 映射到本项目 | external_ids 键 |
 |---|---|---|---|
 | **CIDOC CRM**（ISO 21127，文化遗产事实模型） | 关系语义的"标准说法"；成熟推理规则可复用 | Person→E21、Event→E5、Place→E53、TimeSpan→E52、Book/Source→E31、参与→P11、发生于→P7、时间→P4 | — |
-| **OWL-Time** | 时间区间与 before/after/overlaps | TimeSpan、时间轴"同期"推理 | — |
+| **OWL-Time** | 时间区间与 before/after/overlaps | `time:TemporalEntity` / `Interval` / `Instant`（**该本体无 TimeSpan**，TimeSpan 是 CIDOC `E52` 的叫法）、时间轴"同期"推理 | — |
 | **Wikidata / Wikibase** | 通用锚点，跨源消歧与事实核对 | 所有类型都可挂 QID | `wikidata` |
 | **CBDB**（中国历代人物传记资料库） | 人物生卒、官职、亲属、入仕 | Person | `cbdb` |
 | **CHGIS**（中国历史地理信息系统） | 历史地名与沿革、坐标 | Place | `chgis` |
