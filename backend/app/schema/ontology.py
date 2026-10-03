@@ -55,6 +55,15 @@ class _Governed(BaseModel):
     created_at: str = Field(default_factory=_now)
     updated_at: str = Field(default_factory=_now)
     version: int = 1
+    # 外部权威锚点（G5）：把本地符号锚定到公共参照系，等价于 owl:sameAs。
+    #   键取 EXTERNAL_NAMESPACES 白名单：wikidata / cbdb / chgis / tgn / geonames / periodo
+    #   例：{"cbdb": "12345", "wikidata": "Q7122"}
+    external_ids: dict[str, str] = Field(default_factory=dict)
+    # 知识来源层级（可废止推理 / PROV-O wasDerivedFrom）：冲突裁决的优先级依据。
+    #   core=权威主干（CBDB/CHGIS/Wikidata）| seed=内置种子
+    #   book=挂载书（单一史观，不可覆盖 core）| llm=模型抽取（最弱）
+    #   注：Book 另有 origin 字段表示「内置 / 上传」，两者语义不同，勿混用。
+    provenance: str = "seed"
 
 
 class Dynasty(_Governed):

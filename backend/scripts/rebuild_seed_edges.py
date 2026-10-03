@@ -53,30 +53,111 @@ def build_indexes():
     return label_of, name_of
 
 
+# 种子边里引用了但在 seed 数据中**未定义**的 id（历史欠账）。
+# 左边是边里的 id，右边是它实际指代的中文名；解析时先按中文名找已有节点，
+# 找不到再用主干权威数据（CBDB 人物 / CHGIS 地名）补齐，绝不臆造。
+_ALIAS = {
+    # 人物
+    "chenshe": "陈胜", "xiangyu": "项羽", "liubang": "刘邦",
+    "huoqubing": "霍去病", "weiqing": "卫青", "zhouyu": "周瑜",
+    "fujian": "苻坚", "xiean": "谢安", "yangdi": "隋炀帝",
+    "guoziyi": "郭子仪", "tangxuanzong": "唐玄宗",
+    "songhuizong": "宋徽宗", "qinhui": "秦桧", "mingchengzu": "明成祖",
+    "linzexu": "林则徐", "lihongzhang": "李鸿章", "zhenghe": "郑和",
+    "hanwudi": "汉武帝", "yuefei": "岳飞",
+    # 事件 / 地点
+    "daze": "大泽乡", "zhangqian_ev": "张骞出使", "mobei": "漠北",
+    "jingnan_ru": "靖难", "humen_xiaoyan": "虎门销烟",
+    "zhenghe_ev": "郑和下西洋", "yuefei_die": "岳飞",
+    "mawei": "马嵬", "changan": "长安", "hongmen": "鸿门",
+    "dayunhe": "大运河", "feishui": "淝水", "chibi": "赤壁",
+    "jingkang": "靖康", "yaopian": "鸦片", "jiawu": "甲午",
+}
+
+
 def build_alias():
     """seed 拼音 id → seed 对象名称（作为连接到中文名节点的桥梁）。"""
-    alias = {}
+    alias = dict(_ALIAS)
     for attr in ("PEOPLE", "EVENTS", "PLACES", "DYNASTIES"):
         for o in getattr(seed, attr, []):
-            alias[getattr(o, "id", "")] = getattr(o, "name", "")
+            alias.setdefault(getattr(o, "id", ""), getattr(o, "name", ""))
     return alias
 
 
-def make_resolver(label_of, name_of, alias):
+def build_core_index():
+    """主干精简表索引：人物名 → CBDB 记录（用于补齐缺失端点）。"""
+    idx: dict[str, list[dict]] = {}
+    for f in sorted((Path(_BACKEND) / "app" / "data" / "core" / "normalized")
+                    .glob("cbdb_persons*.jsonl")):
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                nm = (r.get("name") or "").strip()
+                cb = (r.get("external_ids") or {}).get("cbdb")
+                if nm and cb:
+                    idx.setdefault(nm, []).append(r)
+    return idx
+
+
+def make_resolver(label_of, name_of, alias, core_idx=None):
+    """逐级解析端点：id → 名称 → 名称分段 → 名称包含 → 主干数据补齐。
+
+    core_idx 非空时，人物类端点若库里没有，会从 CBDB 主干新建一个
+    provenance=core 的 Person（用的是权威数据，不是臆造）。
+    """
+    created: list[str] = []
+
     def resolve(tok: str):
         if tok in label_of:
             return tok, label_of[tok]
         nm = alias.get(tok) or ""
-        if nm and nm in name_of:
-            return name_of[nm]
-        # 名称分段逐个试：「秦始皇 嬴政」→ 先试全称再试「秦始皇」「嬴政」
-        for part in nm.replace("·", " ").split():
-            if part in name_of:
-                return name_of[part]
+        if nm:
+            if nm in name_of:
+                return name_of[nm]
+            # 名称分段逐个试：「秦始皇 嬴政」→ 先试全称再试「秦始皇」「嬴政」
+            for part in nm.replace("·", " ").split():
+                if part in name_of:
+                    return name_of[part]
+            # 名称包含匹配：「漠北」→「漠北之战」、「大泽乡」→「大泽乡起义」
+            for k, v in name_of.items():
+                if nm in k or (len(k) >= 2 and k in nm):
+                    return v
         if tok in name_of:
             return name_of[tok]
+
+        # 主干补齐：用 CBDB 权威人物把缺失端点补成 core 节点
+        if core_idx:
+            cands = core_idx.get(nm) or core_idx.get(tok) or []
+            if len(cands) == 1:
+                from app.schema.ontology import Narrative, Person
+                c = cands[0]
+                cb = (c.get("external_ids") or {}).get("cbdb")
+                nid = f"cbdb:{cb}"
+                if nid not in label_of:
+                    born, dead = c.get("year_birth"), c.get("year_death")
+                    store.people.append(Person(
+                        id=nid, name=c["name"],
+                        years=(str(born) if born else "",
+                               str(dead) if dead else ""),
+                        dynasty_id="", home="", lon=None, lat=None,
+                        aliases=[],
+                        narrative=Narrative(
+                            student=c["name"],
+                            scholar=f"{c['name']}。主干人物（CBDB {cb}），"
+                                    "由本体语义边引用而补齐。",
+                            fan=c["name"]),
+                        external_ids={"cbdb": str(cb)},
+                        provenance="core"))
+                    label_of[nid] = "Person"
+                    name_of.setdefault(c["name"], (nid, "Person"))
+                    created.append(nid)
+                return nid, "Person"
         return None, None
-    return resolve
+
+    return resolve, created
 
 
 def collect_edges():
@@ -95,10 +176,15 @@ def collect_edges():
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="写库（默认干跑）")
+    ap.add_argument("--no-core", action="store_true",
+                    help="不用主干数据补齐缺失端点")
     a = ap.parse_args()
 
     label_of, name_of = build_indexes()
-    resolve = make_resolver(label_of, name_of, build_alias())
+    core_idx = {} if a.no_core else build_core_index()
+    if core_idx:
+        print(f"主干人物索引      {len(core_idx):,} 个姓名（用于补齐缺失端点）")
+    resolve, created = make_resolver(label_of, name_of, build_alias(), core_idx)
     existing = {(e["a"], e["b"], e["rel"]) for e in store.edges}
 
     resolved, unresolved, dup, bad_pair = [], [], 0, []
@@ -124,6 +210,7 @@ def main() -> int:
     print(f"可解析（将写入）  {len(resolved)}")
     print(f"已存在（跳过）    {dup}")
     print(f"组合不在关系目录  {len(bad_pair)}  {bad_pair[:3]}")
+    print(f"主干补齐新建节点  {len(created)}")
     print(f"端点缺失（悬空）  {len(unresolved)}")
     for u in unresolved:
         print("   ", json.dumps(u, ensure_ascii=False))

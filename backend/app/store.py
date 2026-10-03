@@ -53,6 +53,7 @@ _NODE_DDL = [
         id STRING, name STRING, span_s INT64, span_e INT64, color STRING,
         cap_name STRING, cap_lon DOUBLE, cap_lat DOUBLE,
         map_tile STRING, grp STRING, lane INT64, emperors STRING,
+        external_ids STRING, provenance STRING,
         ca STRING, ua STRING, version INT64,
         PRIMARY KEY(id))""",
     """CREATE NODE TABLE Event(
@@ -63,6 +64,7 @@ _NODE_DDL = [
         significance STRING, dispute STRING,
         route STRING, route_label STRING,
         from_book STRING, book_sources STRING,
+        external_ids STRING, provenance STRING,
         ca STRING, ua STRING, version INT64,
         PRIMARY KEY(id))""",
     """CREATE NODE TABLE Person(
@@ -70,12 +72,14 @@ _NODE_DDL = [
         lon DOUBLE, lat DOUBLE, aliases STRING,
         n_student STRING, n_scholar STRING, n_fan STRING,
         from_book STRING, book_sources STRING,
+        external_ids STRING, provenance STRING,
         ca STRING, ua STRING, version INT64,
         PRIMARY KEY(id))""",
     """CREATE NODE TABLE Place(
         id STRING, name STRING, ancient STRING, modern STRING,
         lon DOUBLE, lat DOUBLE, aliases STRING,
         n_student STRING, n_scholar STRING, n_fan STRING,
+        external_ids STRING, provenance STRING,
         ca STRING, ua STRING, version INT64,
         PRIMARY KEY(id))""",
     """CREATE NODE TABLE Source(
@@ -403,12 +407,15 @@ class Store:
                 "CREATE (n:Dynasty {id:$id, name:$name, span_s:$ss, span_e:$se,"
                 " color:$color, cap_name:$cn, cap_lon:$clon, cap_lat:$clat,"
                 " map_tile:$mt, grp:$grp, lane:$lane, emperors:$emp,"
+                " external_ids:$ext, provenance:$prov,"
                 " ca:$ca, ua:$ua, version:$ver})",
                 {"id": d.id, "name": d.name, "ss": d.span[0], "se": d.span[1],
                  "color": d.color, "cn": d.capital[0], "clon": d.capital[1],
                  "clat": d.capital[2], "mt": d.map_tile,
                  "grp": getattr(d, "group", None),
                  "lane": getattr(d, "lane", 0), "emp": _j(d.emperors),
+                 "ext": _j(getattr(d, "external_ids", {}) or {}),
+                 "prov": getattr(d, "provenance", None) or "seed",
                  "ca": d.created_at, "ua": d.updated_at, "ver": d.version})
 
         for e in self.events:
@@ -418,6 +425,7 @@ class Store:
                 " place:$place, actors:$actors, n_student:$ns, n_scholar:$nc,"
                 " n_fan:$nf, significance:$sig, dispute:$dis, route:$route,"
                 " route_label:$rl, from_book:$fb, book_sources:$bs,"
+                " external_ids:$ext, provenance:$prov,"
                 " ca:$ca, ua:$ua, version:$ver})",
                 {"id": e.id, "name": e.name, "year": e.year,
                  "mo": e.month, "day": e.day,
@@ -430,6 +438,9 @@ class Store:
                  "route": _j(e.route) if e.route else None,
                  "rl": e.route_label, "fb": e.from_book,
                  "bs": _j([s.model_dump() for s in e.book_sources]),
+                 "ext": _j(getattr(e, "external_ids", {}) or {}),
+                 "prov": getattr(e, "provenance", None)
+                 or ("book" if getattr(e, "from_book", None) else "seed"),
                  "ca": e.created_at, "ua": e.updated_at, "ver": e.version})
 
         for p in self.people:
@@ -438,6 +449,7 @@ class Store:
                 " dynasty_id:$did, home:$home, lon:$lon, lat:$lat,"
                 " aliases:$aliases, n_student:$ns, n_scholar:$nc, n_fan:$nf,"
                 " from_book:$fb, book_sources:$bs,"
+                " external_ids:$ext, provenance:$prov,"
                 " ca:$ca, ua:$ua, version:$ver})",
                 {"id": p.id, "name": p.name, "years": _j(list(p.years)),
                  "did": p.dynasty_id, "home": p.home, "lon": p.lon, "lat": p.lat,
@@ -445,6 +457,9 @@ class Store:
                  "ns": p.narrative.student, "nc": p.narrative.scholar,
                  "nf": p.narrative.fan, "fb": p.from_book,
                  "bs": _j([s.model_dump() for s in p.book_sources]),
+                 "ext": _j(getattr(p, "external_ids", {}) or {}),
+                 "prov": getattr(p, "provenance", None)
+                 or ("book" if getattr(p, "from_book", None) else "seed"),
                  "ca": p.created_at, "ua": p.updated_at, "ver": p.version})
 
         for pl in self.places:
@@ -452,12 +467,15 @@ class Store:
                 "CREATE (n:Place {id:$id, name:$name, ancient:$anc,"
                 " modern:$mod, lon:$lon, lat:$lat, aliases:$aliases,"
                 " n_student:$ns, n_scholar:$nc, n_fan:$nf,"
+                " external_ids:$ext, provenance:$prov,"
                 " ca:$ca, ua:$ua, version:$ver})",
                 {"id": pl.id, "name": pl.name, "anc": pl.ancient,
                  "mod": pl.modern, "lon": pl.lon, "lat": pl.lat,
                  "aliases": _j(pl.aliases),
                  "ns": pl.narrative.student, "nc": pl.narrative.scholar,
                  "nf": pl.narrative.fan,
+                 "ext": _j(getattr(pl, "external_ids", {}) or {}),
+                 "prov": getattr(pl, "provenance", None) or "seed",
                  "ca": pl.created_at, "ua": pl.updated_at, "ver": pl.version})
 
         for owner, srcs in self.sources.items():
@@ -563,6 +581,8 @@ class Store:
             capital=(d["cap_name"], d["cap_lon"], d["cap_lat"]),
             map_tile=d["map_tile"], emperors=json.loads(d["emperors"] or "[]"),
             group=d["grp"], lane=d["lane"] or 0,
+            external_ids=json.loads(d.get("external_ids") or "{}"),
+            provenance=d.get("provenance") or "seed",
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Dynasty")]
@@ -580,6 +600,9 @@ class Store:
             route_label=d["route_label"], from_book=d["from_book"],
             book_sources=[Source.model_validate(x)
                           for x in json.loads(d["book_sources"] or "[]")],
+            external_ids=json.loads(d.get("external_ids") or "{}"),
+            provenance=d.get("provenance")
+            or ("book" if d.get("from_book") else "seed"),
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Event")]
@@ -594,6 +617,9 @@ class Store:
             from_book=d["from_book"],
             book_sources=[Source.model_validate(x)
                           for x in json.loads(d["book_sources"] or "[]")],
+            external_ids=json.loads(d.get("external_ids") or "{}"),
+            provenance=d.get("provenance")
+            or ("book" if d.get("from_book") else "seed"),
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Person")]
@@ -604,6 +630,8 @@ class Store:
             aliases=json.loads(d.get("aliases") or "[]"),
             narrative=Narrative(student=d["n_student"],
                                 scholar=d["n_scholar"], fan=d["n_fan"]),
+            external_ids=json.loads(d.get("external_ids") or "{}"),
+            provenance=d.get("provenance") or "seed",
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Place")]

@@ -64,6 +64,8 @@ def event_dict(e, with_sources: bool = False) -> dict:
         "route": getattr(e, "route", None),
         "route_label": getattr(e, "route_label", None),
         "from_book": e.from_book,
+        "external_ids": getattr(e, "external_ids", {}) or {},
+        "provenance": getattr(e, "provenance", "seed"),
     }
     if with_sources:
         d["sources"] = [src_dict(s) for s in store.sources_of("event", e)]
@@ -74,7 +76,9 @@ def person_dict(p, with_sources: bool = False) -> dict:
     d = {"id": p.id, "name": p.name, "years": list(p.years),
          "dynasty_id": p.dynasty_id, "home": p.home,
          "lon": p.lon, "lat": p.lat,
-         "from_book": p.from_book}
+         "from_book": p.from_book,
+         "external_ids": getattr(p, "external_ids", {}) or {},
+         "provenance": getattr(p, "provenance", "seed")}
     if with_sources:
         d["sources"] = [src_dict(s) for s in store.sources_of("person", p)]
     return d
@@ -85,7 +89,9 @@ def dynasty_dict(d) -> dict:
             "color": d.color,
             "capital": {"name": d.capital[0], "lon": d.capital[1], "lat": d.capital[2]},
             "map_tile": d.map_tile, "emperors": d.emperors,
-            "group": getattr(d, "group", None), "lane": getattr(d, "lane", 0)}
+            "group": getattr(d, "group", None), "lane": getattr(d, "lane", 0),
+            "external_ids": getattr(d, "external_ids", {}) or {},
+            "provenance": getattr(d, "provenance", "seed")}
 
 
 def narrative_dict(obj) -> dict:
@@ -265,7 +271,9 @@ def search(q: str):
         else:
             out.append({"kind": kind, "id": obj.id, "name": obj.name,
                         "ancient": obj.ancient, "modern": obj.modern,
-                        "lon": obj.lon, "lat": obj.lat})
+                        "lon": obj.lon, "lat": obj.lat,
+                        "external_ids": getattr(obj, "external_ids", {}) or {},
+                        "provenance": getattr(obj, "provenance", "seed")})
     return out
 
 
@@ -285,6 +293,8 @@ def entity(kind: str, oid: str):
                 "narrative": narrative_dict(obj), "edges": edges}
     return {"kind": kind, "id": obj.id, "name": obj.name, "ancient": obj.ancient,
             "modern": obj.modern, "lon": obj.lon, "lat": obj.lat,
+            "external_ids": getattr(obj, "external_ids", {}) or {},
+            "provenance": getattr(obj, "provenance", "seed"),
             "narrative": narrative_dict(obj), "edges": edges}
 
 
