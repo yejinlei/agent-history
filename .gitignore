@@ -41,6 +41,9 @@ backend/app/data/kg/
 backend/app/data/ingest/
 backend/app/data/library/
 
+# ---- 本地冷备份（scripts/backup_data.py 产出，体积大且属于本机状态）----
+backend/_backup/
+
 # ---- 主干权威数据（CIDOC/OWL-Time/Wikidata/CHGIS/CBDB）----
 # raw/ 是原始大件（CBDB sqlite 877 MB 等），超过 GitHub 单文件 100 MB 上限，
 # 不入库：由 scripts/fetch_core.py + manifest.json（含 URL 与 sha256）随时重建。
