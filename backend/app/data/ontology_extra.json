@@ -1,0 +1,133 @@
+{
+  "institutions": [
+    {
+      "id": "inst_shangshu",
+      "name": "尚书省",
+      "kind": "org",
+      "function": "全国行政总汇，下辖吏户礼兵刑工六部，长官为尚书令、左右仆射",
+      "dynasty_id": "tang",
+      "span": [581, 907],
+      "aliases": ["尚书都省"]
+    },
+    {
+      "id": "inst_beiting",
+      "name": "北庭都护府",
+      "kind": "org",
+      "function": "管理天山以北游牧部族与丝绸之路北道的军政机构，治庭州",
+      "dynasty_id": "tang",
+      "span": [702, 790],
+      "aliases": ["北庭大都护府"]
+    },
+    {
+      "id": "inst_chengxiang",
+      "name": "丞相",
+      "kind": "post",
+      "function": "百官之首，辅佐皇帝总揽政务；秦及西汉初置，明初胡惟庸案后罢废",
+      "dynasty_id": null,
+      "span": [-334, 1380],
+      "aliases": ["相国", "相邦"]
+    },
+    {
+      "id": "inst_cishi",
+      "name": "刺史",
+      "kind": "post",
+      "function": "汉武帝置十三州刺史以监察地方，东汉后渐为州级行政长官",
+      "dynasty_id": "tang",
+      "span": [-106, 1912],
+      "aliases": ["州牧"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "art_fangsheng",
+      "name": "商鞅方升",
+      "kind": "器物",
+      "material": "青铜",
+      "era_text": "十八年，齐䢦卿大夫众来聘，冬十二月乙酉，大良造鞅，爰积十六尊五分尊壹为升",
+      "year": -344,
+      "date_confidence": "year",
+      "place_id": null,
+      "museum": "上海博物馆",
+      "aliases": ["商鞅铜方升"]
+    },
+    {
+      "id": "art_caoquan_bei",
+      "name": "曹全碑",
+      "kind": "碑刻",
+      "material": "石",
+      "era_text": "中平二年十月丙辰造",
+      "year": 185,
+      "date_confidence": "year",
+      "place_id": null,
+      "museum": "西安碑林博物馆",
+      "aliases": ["郃阳令曹全碑"]
+    },
+    {
+      "id": "art_juyan_hanjian",
+      "name": "居延汉简",
+      "kind": "简牍",
+      "material": "木质（松、柳）",
+      "era_text": "纪年自西汉武帝太初三年至东汉顺帝建康元年",
+      "year": -100,
+      "date_confidence": "disputed",
+      "place_id": null,
+      "museum": "甘肃简牍博物馆、台北中央研究院历史语言研究所等",
+      "aliases": ["居延旧简"]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "con_keju",
+      "name": "科举制",
+      "kind": "制度",
+      "definition": "以分科考试选拔官员的制度。隋炀帝大业元年（605）置进士科，历经发展完善，至清光绪三十一年（1905）废止，延续约一千三百年。",
+      "dynasty_id": "sui",
+      "origin_year": 605,
+      "aliases": ["科举"]
+    },
+    {
+      "id": "con_jiupin",
+      "name": "九品中正制",
+      "kind": "制度",
+      "definition": "曹魏黄初元年（220）陈群创立的选官制度，由中正官按家世、行评定人物为九等，西晋后渐成「上品无寒门」之局，至隋为科举取代。",
+      "dynasty_id": null,
+      "origin_year": 220,
+      "aliases": ["九品官人法"]
+    },
+    {
+      "id": "con_ren",
+      "name": "仁",
+      "kind": "思想",
+      "definition": "儒家核心观念。孔子以「爱人」释仁，孟子发展为仁政学说，后世儒家不断阐发，成为中国传统伦理与政治思想的中心范畴。",
+      "dynasty_id": null,
+      "origin_year": -500,
+      "aliases": ["仁学"]
+    },
+    {
+      "id": "con_junxian",
+      "name": "郡县制",
+      "kind": "制度",
+      "definition": "中央垂直任免地方守令的郡县两级行政体制。春秋战国之际逐步形成，秦统一后推向全国，取代分封制，奠定此后两千年地方行政基本框架。",
+      "dynasty_id": null,
+      "origin_year": -688,
+      "aliases": ["郡县"]
+    }
+  ],
+  "edges": [
+    ["lisi", "inst_chengxiang", "任职于", 0.7, []],
+    ["inst_shangshu", "tang", "隶属", 0.9, []],
+    ["inst_beiting", "tang", "隶属", 0.9, []],
+    ["inst_cishi", "tang", "隶属", 0.7, []],
+    ["con_keju", "tang", "盛行于", 0.9, []],
+    ["con_keju", "beisong", "盛行于", 0.9, []],
+    ["con_keju", "yuan", "盛行于", 0.7, []],
+    ["con_keju", "ming", "盛行于", 0.9, []],
+    ["con_keju", "qing", "盛行于", 0.9, []],
+    ["con_junxian", "qin", "盛行于", 0.9, []],
+    ["qin_unify", "con_junxian", "推行", 0.9, []],
+    ["tang", "sui", "继承自", 0.7, []],
+    ["donghan", "xihan", "继承自", 0.7, []],
+    ["ming", "yuan", "继承自", 0.7, []],
+    ["qing", "ming", "继承自", 0.7, []]
+  ]
+}

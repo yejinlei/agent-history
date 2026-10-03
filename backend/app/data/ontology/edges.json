@@ -1,0 +1,404 @@
+[
+ {
+  "a": "qsh",
+  "b": "qin_unify",
+  "rel": "建立",
+  "from_book": null
+ },
+ {
+  "a": "lisi",
+  "b": "qin_unify",
+  "rel": "辅佐",
+  "from_book": null
+ },
+ {
+  "a": "qsh",
+  "b": "fenshu",
+  "rel": "主导",
+  "from_book": null
+ },
+ {
+  "a": "lisi",
+  "b": "fenshu",
+  "rel": "献策",
+  "from_book": null
+ },
+ {
+  "a": "chenshe",
+  "b": "daze",
+  "rel": "发动",
+  "from_book": null
+ },
+ {
+  "a": "xiangyu",
+  "b": "gaixia",
+  "rel": "败于",
+  "from_book": null
+ },
+ {
+  "a": "liubang",
+  "b": "gaixia",
+  "rel": "战胜",
+  "from_book": null
+ },
+ {
+  "a": "liubang",
+  "b": "xihan",
+  "rel": "建立",
+  "from_book": null
+ },
+ {
+  "a": "zhangqian",
+  "b": "zhangqian_ev",
+  "rel": "出使",
+  "from_book": null
+ },
+ {
+  "a": "hanwudi",
+  "b": "zhangqian_ev",
+  "rel": "派遣",
+  "from_book": null
+ },
+ {
+  "a": "zhangqian",
+  "b": "xihan",
+  "rel": "事于",
+  "from_book": null
+ },
+ {
+  "a": "hanwudi",
+  "b": "mobei",
+  "rel": "发动",
+  "from_book": null
+ },
+ {
+  "a": "huoqubing",
+  "b": "mobei",
+  "rel": "统军",
+  "from_book": null
+ },
+ {
+  "a": "weiqing",
+  "b": "mobei",
+  "rel": "统军",
+  "from_book": null
+ },
+ {
+  "a": "caocao",
+  "b": "chibi",
+  "rel": "统领",
+  "from_book": null
+ },
+ {
+  "a": "zhugele",
+  "b": "chibi",
+  "rel": "联盟谋划",
+  "from_book": null
+ },
+ {
+  "a": "zhouyu",
+  "b": "chibi",
+  "rel": "统帅",
+  "from_book": null
+ },
+ {
+  "a": "fujian",
+  "b": "feishui",
+  "rel": "统率",
+  "from_book": null
+ },
+ {
+  "a": "xiean",
+  "b": "feishui",
+  "rel": "运筹",
+  "from_book": null
+ },
+ {
+  "a": "yangdi",
+  "b": "dayunhe",
+  "rel": "下令",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "xuanwumen",
+  "rel": "发动",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "tang",
+  "rel": "即位于",
+  "from_book": null
+ },
+ {
+  "a": "anlushan",
+  "b": "anlushan",
+  "rel": "发动",
+  "from_book": null
+ },
+ {
+  "a": "guoziyi",
+  "b": "anlushan",
+  "rel": "平定",
+  "from_book": null
+ },
+ {
+  "a": "tangxuanzong",
+  "b": "anlushan",
+  "rel": "在位时",
+  "from_book": null
+ },
+ {
+  "a": "zhaokuangyin",
+  "b": "chenqiao",
+  "rel": "被拥立",
+  "from_book": null
+ },
+ {
+  "a": "zhaokuangyin",
+  "b": "beisong",
+  "rel": "建立",
+  "from_book": null
+ },
+ {
+  "a": "songhuizong",
+  "b": "jingkang",
+  "rel": "被掳",
+  "from_book": null
+ },
+ {
+  "a": "qinhui",
+  "b": "jingkang",
+  "rel": "被掳后南归",
+  "from_book": null
+ },
+ {
+  "a": "yuefei",
+  "b": "nansong",
+  "rel": "抗金于",
+  "from_book": null
+ },
+ {
+  "a": "qinhui",
+  "b": "yuefei",
+  "rel": "构陷",
+  "from_book": null
+ },
+ {
+  "a": "genghis",
+  "b": "mon_unify",
+  "rel": "受尊号",
+  "from_book": null
+ },
+ {
+  "a": "hubilie",
+  "b": "dadu",
+  "rel": "营建",
+  "from_book": null
+ },
+ {
+  "a": "hubilie",
+  "b": "yuan",
+  "rel": "建立",
+  "from_book": null
+ },
+ {
+  "a": "zhenghe",
+  "b": "zhenghe_ev",
+  "rel": "率领",
+  "from_book": null
+ },
+ {
+  "a": "mingchengzu",
+  "b": "zhenghe_ev",
+  "rel": "派遣",
+  "from_book": null
+ },
+ {
+  "a": "mingchengzu",
+  "b": "ming",
+  "rel": "即位于",
+  "from_book": null
+ },
+ {
+  "a": "wangyangming",
+  "b": "longchang",
+  "rel": "悟道",
+  "from_book": null
+ },
+ {
+  "a": "linzexu",
+  "b": "yaopian",
+  "rel": "禁烟",
+  "from_book": null
+ },
+ {
+  "a": "lihongzhang",
+  "b": "jiawu",
+  "rel": "主和",
+  "from_book": null
+ },
+ {
+  "a": "qsh",
+  "b": "changan",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "hanwudi",
+  "b": "changan",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "changan",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "tangxuanzong",
+  "b": "changan",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "caocao",
+  "b": "luoyang",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "hubilie",
+  "b": "beijing",
+  "rel": "都于",
+  "from_book": null
+ },
+ {
+  "a": "zhenghe",
+  "b": "nanjing",
+  "rel": "起锚于",
+  "from_book": null
+ },
+ {
+  "a": "hanwudi",
+  "b": "dunhuang",
+  "rel": "设郡",
+  "from_book": null
+ },
+ {
+  "a": "qsh",
+  "b": "shaqiu",
+  "rel": "崩于",
+  "from_book": null
+ },
+ {
+  "a": "lisi",
+  "b": "shaqiu",
+  "rel": "矫诏",
+  "from_book": null
+ },
+ {
+  "a": "xiangyu",
+  "b": "hongmen",
+  "rel": "设宴",
+  "from_book": null
+ },
+ {
+  "a": "liubang",
+  "b": "hongmen",
+  "rel": "赴宴",
+  "from_book": null
+ },
+ {
+  "a": "caocao",
+  "b": "guandu",
+  "rel": "以少胜多",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "taiyuan_qibing",
+  "rel": "劝父起兵",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "weishui_meng",
+  "rel": "缔盟",
+  "from_book": null
+ },
+ {
+  "a": "tangtaizong",
+  "b": "wencheng",
+  "rel": "遣嫁",
+  "from_book": null
+ },
+ {
+  "a": "tangxuanzong",
+  "b": "mawei",
+  "rel": "西逃途中",
+  "from_book": null
+ },
+ {
+  "a": "yuefei",
+  "b": "yancheng_jie",
+  "rel": "统军大捷",
+  "from_book": null
+ },
+ {
+  "a": "yuefei",
+  "b": "yuefei_die",
+  "rel": "遇害",
+  "from_book": null
+ },
+ {
+  "a": "qinhui",
+  "b": "yuefei_die",
+  "rel": "构陷",
+  "from_book": null
+ },
+ {
+  "a": "mingchengzu",
+  "b": "jingnan_ru",
+  "rel": "靖难夺位",
+  "from_book": null
+ },
+ {
+  "a": "linzexu",
+  "b": "humen_xiaoyan",
+  "rel": "主持销烟",
+  "from_book": null
+ },
+ {
+  "a": "yangshao_rise",
+  "b": "yangshao_v",
+  "rel": "发生于",
+  "from_book": null
+ },
+ {
+  "a": "hemudu_rice",
+  "b": "hemudu_v",
+  "rel": "发生于",
+  "from_book": null
+ },
+ {
+  "a": "liangzhu_city",
+  "b": "liangzhu_v",
+  "rel": "发生于",
+  "from_book": null
+ },
+ {
+  "a": "sanxingdui_sac",
+  "b": "sanxingdui_v",
+  "rel": "发生于",
+  "from_book": null
+ },
+ {
+  "a": "yu_flood",
+  "b": "xia",
+  "rel": "奠定",
+  "from_book": null
+ }
+]

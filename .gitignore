@@ -1,0 +1,77 @@
+# ============================================================
+# ChronoSino 仓库忽略规则
+# 原则：源码 / 配置 / 种子数据入库；
+#       运行时数据、缓存、大体积二进制、密钥一律不入库。
+# ============================================================
+
+# ---- Python ----
+.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ---- Node 前端 ----
+frontend/node_modules/
+frontend/dist/
+
+# ---- 密钥 / 环境变量（绝不入库）----
+# 真实密钥只存在于 backend/.env；仓库里只提交 .env.example（占位符，无密钥）
+.env
+*.env
+backend/.env
+!.env.example
+!backend/.env.example
+
+# ---- 运行时数据库 ----
+# 目前不入库；等《资治通鉴》等书构建完成后，再放开这两行一起提交
+#   warehouse/ = DuckDB（进度 / 原始抽取结果 / 元数据）≈518 MB
+#   kg/        = Kuzu 图库（实体与关系）≈668 MB
+backend/app/data/warehouse/
+backend/app/data/kg/
+
+# ---- 地图瓦片：必须入库（用户决定）----
+# 瓦片抓取困难（源站慢/易断），一旦丢失很难重建，因此 backend/app/data/tiles/
+# 不做任何忽略，18.1 万个 png ≈ 1.02 GB 全部纳入版本管理。
+# 严禁执行 `git clean -xdf` / 删除该目录；它不是纯缓存。
+# 若将来要推远端且受体积限制，再考虑：
+#   git lfs install
+#   git lfs track "backend/app/data/tiles/**/*.png"
+
+# ---- 构建产物 / 上传文件（可重跑，或属于用户数据）----
+backend/app/data/ingest/
+backend/app/data/library/
+
+# ---- 抓取与运行时产生的中间文件 ----
+backend/app/data/_hm_*.html
+backend/app/data/_hm_*.json
+backend/app/data/_osgeo_*.json
+backend/app/data/_wmts_*.xml
+backend/app/data/_wmts_*.json
+backend/app/data/action_log.json
+backend/app/data/pending_ops.json
+
+# ---- 日志 ----
+*.log
+*.err
+logs/
+backend/logs/
+
+# ---- 嵌入模型权重 ----
+# bge-small-zh-v1.5 权重与分词器直接入库（用户决定），保证离线 embed 开箱可用。
+#   models/.../snapshots/<rev>/model_optimized.onnx  ≈ 90 MB（GitHub 单文件上限 100 MB，可直接提交）
+#   tokenizer.json ≈ 429 KB
+# 只排除 HF 缓存中可再生的部分（blobs 是 onnx 的副本，会再占 90 MB）：
+models/**/blobs/
+models/**/.locks/
+models/CACHEDIR.TAG
+# 若日后改用 LFS：
+#   git lfs install
+#   git lfs track "models/**/*.onnx"
+#   然后把上面三段忽略注释掉，并改为忽略 snapshots 之外的缓存目录
+
+# ---- IDE / 系统 ----
+.trae/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

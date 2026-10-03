@@ -1,0 +1,198 @@
+[
+ {
+  "id": "wanli15",
+  "title": "万历十五年",
+  "author": "黄仁宇",
+  "year": 1981,
+  "level": 2,
+  "color": "#1d4ed8",
+  "dynasty_id": "ming",
+  "span": [
+   1525,
+   1602
+  ],
+  "tags": [
+   "明代",
+   "政治制度",
+   "大历史观"
+  ],
+  "description": "以1587年这「平淡一年」切入，剖析明代官僚体制的结构性困局，是海外中国史研究最有影响力的作品之一。",
+  "extracts": [
+   {
+    "kind": "person",
+    "name": "海瑞",
+    "summary": "明代著名清官，1587年卒于南京右佥都御史任上。书中称其为「古怪的模范官僚」：以个人道德对抗整个官僚机器。",
+    "confidence": 0.92,
+    "new_id": "bk_wanli15_hairui",
+    "target_id": null,
+    "years": "1514—1587",
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "person",
+    "name": "戚继光",
+    "summary": "抗倭名将、军事家。书中指出他在重文轻武体制下，只能靠私人关系维持军队，无法建立现代化国防制度。",
+    "confidence": 0.93,
+    "new_id": "bk_wanli15_qjg",
+    "target_id": null,
+    "years": "1528—1588",
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "person",
+    "name": "张居正",
+    "summary": "万历朝首辅，十年改革（考成法、一条鞭法）人亡政息，死后被抄家。",
+    "confidence": 0.9,
+    "new_id": "bk_wanli15_zjz",
+    "target_id": null,
+    "years": "1525—1582",
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "person",
+    "name": "李贽",
+    "summary": "「异端」思想家，主张童心说，1602年自刎狱中——个人精神自由与礼教体制的极端冲突。",
+    "confidence": 0.86,
+    "new_id": "bk_wanli15_lizhi",
+    "target_id": null,
+    "years": "1527—1602",
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "event",
+    "name": "1587：大历史观下的停滞之年",
+    "summary": "黄仁宇核心论点：明亡之兆藏在1587年——缺少「数目字管理」，以道德代替技术治理，帝国陷入僵局。此为解释框架而非学界定论。",
+    "confidence": 0.78,
+    "new_id": "bk_wanli15_ev1",
+    "target_id": null,
+    "years": null,
+    "year": 1587,
+    "lon": 116.4,
+    "lat": 39.9,
+    "place": "北京"
+   }
+  ],
+  "mounted": false
+ },
+ {
+  "id": "daqin",
+  "title": "大秦帝国",
+  "author": "孙皓晖",
+  "year": 2008,
+  "level": 3,
+  "color": "#b45309",
+  "dynasty_id": "qin",
+  "span": [
+   -361,
+   -206
+  ],
+  "tags": [
+   "历史小说",
+   "先秦",
+   "秦变法"
+  ],
+  "description": "六部十一卷、500万字的历史小说，讲述秦国从商鞅变法到统一天下再到速亡的全过程。文学价值高，但不能当信史读。",
+  "extracts": [
+   {
+    "kind": "person",
+    "name": "商鞅",
+    "summary": "在秦孝公支持下于前356年、前350年两度变法，奠定秦统一根基；孝公死后被车裂。（史有其人，本条人物卡由小说挂载，学术使用请核对《史记·商君列传》）",
+    "confidence": 0.85,
+    "new_id": "bk_daqin_shangyang",
+    "target_id": null,
+    "years": "约前390—前338",
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "link",
+    "name": "对齐：秦灭六国，大一统",
+    "summary": "【文学视角】小说以恢弘笔法重述秦统一进程，人物对话与情节多为虚构创作，可作兴趣入门，不可作史实引用。",
+    "confidence": 0.35,
+    "new_id": null,
+    "target_id": "qin_unify",
+    "years": null,
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "link",
+    "name": "对齐：陈胜吴广起义",
+    "summary": "【文学视角】对秦末民变的小说化演绎，与《史记·陈涉世家》的记载有较大出入。",
+    "confidence": 0.3,
+    "new_id": null,
+    "target_id": "daze",
+    "years": null,
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   }
+  ],
+  "mounted": false
+ },
+ {
+  "id": "silkroad",
+  "title": "丝绸之路：一部全新的世界史",
+  "author": "彼得·弗兰科潘",
+  "year": 2015,
+  "level": 2,
+  "color": "#7e22ce",
+  "dynasty_id": "xihan",
+  "span": [
+   -138,
+   1450
+  ],
+  "tags": [
+   "丝路",
+   "全球史",
+   "中亚"
+  ],
+  "description": "牛津拜占庭史学者重写的世界史：文明的中心不在地中海或西欧，而在欧亚大陆的「丝绸之路」心脏地带。",
+  "extracts": [
+   {
+    "kind": "link",
+    "name": "对齐：张骞凿空西域",
+    "summary": "【研究观点】该书重估丝路性质：它并非由东向西的单向「开辟」，而是中亚诸文明长期共构的贸易与信仰网络；张骞通西域是关键节点而非起点。",
+    "confidence": 0.72,
+    "new_id": null,
+    "target_id": "zhangqian",
+    "years": null,
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   },
+   {
+    "kind": "link",
+    "name": "对齐：郑和下西洋",
+    "summary": "【研究观点】将郑和下西洋置于印度洋世界贸易体系的脉络中重新评价，而非孤立的朝贡航行。",
+    "confidence": 0.7,
+    "new_id": null,
+    "target_id": "zhenghe",
+    "years": null,
+    "year": null,
+    "lon": null,
+    "lat": null,
+    "place": null
+   }
+  ],
+  "mounted": false
+ }
+]

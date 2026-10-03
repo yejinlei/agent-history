@@ -1,0 +1,514 @@
+{
+  "shiji": {
+    "file": "shiji.txt",
+    "title": "史记",
+    "author": "司马迁",
+    "year": -91,
+    "level": 1,
+    "color": "#b91c1c",
+    "dynasty_id": "xihan",
+    "span": [
+      -3000,
+      -91
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《史记》，司马迁撰，-91年成书。二十四史之一纪传体正史。"
+  },
+  "hanshu": {
+    "file": "hanshu.txt",
+    "title": "汉书",
+    "author": "班固",
+    "year": 82,
+    "level": 1,
+    "color": "#1d4ed8",
+    "dynasty_id": "donghan",
+    "span": [
+      -206,
+      24
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《汉书》，班固撰，82年成书。二十四史之一纪传体正史。"
+  },
+  "houhanshu": {
+    "file": "houhanshu.txt",
+    "title": "后汉书",
+    "author": "范晔",
+    "year": 445,
+    "level": 1,
+    "color": "#047857",
+    "dynasty_id": "donghan",
+    "span": [
+      25,
+      220
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《后汉书》，范晔撰，445年成书。二十四史之一纪传体正史。"
+  },
+  "sanguozhi": {
+    "file": "sanguozhi.txt",
+    "title": "三国志",
+    "author": "陈寿",
+    "year": 289,
+    "level": 1,
+    "color": "#b45309",
+    "dynasty_id": "jin",
+    "span": [
+      220,
+      280
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《三国志》，陈寿撰，289年成书。二十四史之一纪传体正史。"
+  },
+  "jinshu": {
+    "file": "jinshu.txt",
+    "title": "晋书",
+    "author": "房玄龄等",
+    "year": 648,
+    "level": 1,
+    "color": "#7e22ce",
+    "dynasty_id": "tang",
+    "span": [
+      265,
+      420
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《晋书》，房玄龄等撰，648年成书。二十四史之一纪传体正史。"
+  },
+  "songshu": {
+    "file": "songshu.txt",
+    "title": "宋书",
+    "author": "沈约",
+    "year": 488,
+    "level": 1,
+    "color": "#be185d",
+    "dynasty_id": "nanbei",
+    "span": [
+      420,
+      479
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《宋书》，沈约撰，488年成书。二十四史之一纪传体正史。"
+  },
+  "nanqishu": {
+    "file": "nanqishu.txt",
+    "title": "南齐书",
+    "author": "萧子显",
+    "year": 537,
+    "level": 1,
+    "color": "#0f766e",
+    "dynasty_id": "nanbei",
+    "span": [
+      479,
+      502
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《南齐书》，萧子显撰，537年成书。二十四史之一纪传体正史。"
+  },
+  "liangshu": {
+    "file": "liangshu.txt",
+    "title": "梁书",
+    "author": "姚思廉",
+    "year": 636,
+    "level": 1,
+    "color": "#4338ca",
+    "dynasty_id": "nanbei",
+    "span": [
+      502,
+      557
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《梁书》，姚思廉撰，636年成书。二十四史之一纪传体正史。"
+  },
+  "chenshu": {
+    "file": "chenshu.txt",
+    "title": "陈书",
+    "author": "姚思廉",
+    "year": 636,
+    "level": 1,
+    "color": "#a16207",
+    "dynasty_id": "nanbei",
+    "span": [
+      557,
+      589
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《陈书》，姚思廉撰，636年成书。二十四史之一纪传体正史。"
+  },
+  "weishu": {
+    "file": "weishu.txt",
+    "title": "魏书",
+    "author": "魏收",
+    "year": 554,
+    "level": 1,
+    "color": "#991b1b",
+    "dynasty_id": "nanbei",
+    "span": [
+      386,
+      550
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《魏书》，魏收撰，554年成书。二十四史之一纪传体正史。"
+  },
+  "beiqiishu": {
+    "file": "beiqiishu.txt",
+    "title": "北齐书",
+    "author": "李百药",
+    "year": 636,
+    "level": 1,
+    "color": "#047857",
+    "dynasty_id": "nanbei",
+    "span": [
+      550,
+      577
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《北齐书》，李百药撰，636年成书。二十四史之一纪传体正史。"
+  },
+  "zhoushu": {
+    "file": "zhoushu.txt",
+    "title": "周书",
+    "author": "令狐德棻等",
+    "year": 636,
+    "level": 1,
+    "color": "#c2410c",
+    "dynasty_id": "nanbei",
+    "span": [
+      557,
+      581
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《周书》，令狐德棻等撰，636年成书。二十四史之一纪传体正史。"
+  },
+  "suishu": {
+    "file": "suishu.txt",
+    "title": "隋书",
+    "author": "魏徵等",
+    "year": 656,
+    "level": 1,
+    "color": "#b91c1c",
+    "dynasty_id": "sui",
+    "span": [
+      581,
+      618
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《隋书》，魏徵等撰，656年成书。二十四史之一纪传体正史。"
+  },
+  "nanshi": {
+    "file": "nanshi.txt",
+    "title": "南史",
+    "author": "李延寿",
+    "year": 659,
+    "level": 1,
+    "color": "#1d4ed8",
+    "dynasty_id": "nanbei",
+    "span": [
+      420,
+      589
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《南史》，李延寿撰，659年成书。二十四史之一纪传体正史。"
+  },
+  "beishi": {
+    "file": "beishi.txt",
+    "title": "北史",
+    "author": "李延寿",
+    "year": 659,
+    "level": 1,
+    "color": "#047857",
+    "dynasty_id": "nanbei",
+    "span": [
+      386,
+      618
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《北史》，李延寿撰，659年成书。二十四史之一纪传体正史。"
+  },
+  "jiutangshu": {
+    "file": "jiutangshu.txt",
+    "title": "旧唐书",
+    "author": "刘昫等",
+    "year": 945,
+    "level": 1,
+    "color": "#b45309",
+    "dynasty_id": "tang",
+    "span": [
+      618,
+      907
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《旧唐书》，刘昫等撰，945年成书。二十四史之一纪传体正史。"
+  },
+  "jiusidai": {
+    "file": "jiusidai.txt",
+    "title": "旧五代史",
+    "author": "薛居正等",
+    "year": 974,
+    "level": 1,
+    "color": "#7e22ce",
+    "dynasty_id": "wudai",
+    "span": [
+      907,
+      960
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《旧五代史》，薛居正等撰，974年成书。二十四史之一纪传体正史。"
+  },
+  "xintangshu": {
+    "file": "xintangshu.txt",
+    "title": "新唐书",
+    "author": "欧阳修、宋祁",
+    "year": 1060,
+    "level": 1,
+    "color": "#be185d",
+    "dynasty_id": "tang",
+    "span": [
+      618,
+      907
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《新唐书》，欧阳修、宋祁撰，1060年成书。二十四史之一纪传体正史。"
+  },
+  "xinwudaishi": {
+    "file": "xinwudaishi.txt",
+    "title": "新五代史",
+    "author": "欧阳修",
+    "year": 1072,
+    "level": 1,
+    "color": "#0f766e",
+    "dynasty_id": "wudai",
+    "span": [
+      907,
+      960
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《新五代史》，欧阳修撰，1072年成书。二十四史之一纪传体正史。"
+  },
+  "songshi": {
+    "file": "songshi.txt",
+    "title": "宋史",
+    "author": "脱脱等",
+    "year": 1345,
+    "level": 1,
+    "color": "#4338ca",
+    "dynasty_id": "beisong",
+    "span": [
+      960,
+      1279
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《宋史》，脱脱等撰，1345年成书。二十四史之一纪传体正史。"
+  },
+  "liaoshi": {
+    "file": "liaoshi.txt",
+    "title": "辽史",
+    "author": "脱脱等",
+    "year": 1344,
+    "level": 1,
+    "color": "#a16207",
+    "dynasty_id": "liao",
+    "span": [
+      907,
+      1125
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《辽史》，脱脱等撰，1344年成书。二十四史之一纪传体正史。"
+  },
+  "jinshi": {
+    "file": "jinshi.txt",
+    "title": "金史",
+    "author": "脱脱等",
+    "year": 1345,
+    "level": 1,
+    "color": "#991b1b",
+    "dynasty_id": "jindyn",
+    "span": [
+      1115,
+      1234
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《金史》，脱脱等撰，1345年成书。二十四史之一纪传体正史。"
+  },
+  "yuanshi": {
+    "file": "yuanshi.txt",
+    "title": "元史",
+    "author": "宋濂等",
+    "year": 1370,
+    "level": 1,
+    "color": "#047857",
+    "dynasty_id": "yuan",
+    "span": [
+      1271,
+      1368
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《元史》，宋濂等撰，1370年成书。二十四史之一纪传体正史。"
+  },
+  "mingshi": {
+    "file": "mingshi.txt",
+    "title": "明史",
+    "author": "张廷玉等",
+    "year": 1739,
+    "level": 1,
+    "color": "#c2410c",
+    "dynasty_id": "ming",
+    "span": [
+      1368,
+      1644
+    ],
+    "tags": [
+      "二十四史",
+      "纪传体",
+      "原始史料"
+    ],
+    "description": "《明史》，张廷玉等撰，1739年成书。二十四史之一纪传体正史。"
+  },
+  "资治通鉴": {
+    "file": "zizhi_tongjian.txt",
+    "title": "资治通鉴",
+    "author": "司马光 等",
+    "year": 1084,
+    "level": 1,
+    "color": "#0f766e",
+    "dynasty_id": "beisong",
+    "span": [
+      -403,
+      959
+    ],
+    "tags": [
+      "编年体",
+      "原始史料",
+      "通鉴类"
+    ],
+    "description": "《资治通鉴》，司马光等撰，1084年成书。编年体通史，涵盖周威烈王至后周世宗。"
+  },
+  "读通鉴论": {
+    "file": "du_tongjian_lun.txt",
+    "title": "读通鉴论",
+    "author": "王夫之",
+    "year": 1690,
+    "level": 2,
+    "color": "#7c3aed",
+    "dynasty_id": "ming",
+    "span": [
+      -403,
+      959
+    ],
+    "tags": [
+      "史论",
+      "研究著作",
+      "通鉴类"
+    ],
+    "description": "《读通鉴论》，王夫之撰，明末清初。逐卷评论《资治通鉴》史事。"
+  },
+  "史通": {
+    "file": "shi_tong.txt",
+    "title": "史通",
+    "author": "刘知几",
+    "year": 710,
+    "level": 2,
+    "color": "#be123c",
+    "dynasty_id": "tang",
+    "span": [
+      -403,
+      710
+    ],
+    "tags": [
+      "史学理论",
+      "研究著作"
+    ],
+    "description": "《史通》，刘知几撰，710年成书。中国第一部史学批评专著。"
+  }
+}

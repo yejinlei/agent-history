@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 引导期错误捕获（早于所有模块，便于定位首屏加载失败）
+      window.__bootErrors = [];
+      window.addEventListener("error", function (e) {
+        window.__bootErrors.push("ERR " + e.message + " " + (e.filename || "") + ":" + e.lineno);
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        window.__bootErrors.push("REJ " + ((r && r.stack) || r));
+      });
+    </script>
+    <title>华夏时空 · ChronoSino</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>华夏时空 · 基于 Agent 的中国历史学习与研究平台（交互原型）</title>
+<style>
+:root{
+  --bg:#f4f5f7; --surface:#ffffff; --surface-2:#f8fafc; --border:#e5e7eb; --border-strong:#cbd5e1;
+  --text:#0f172a; --text-2:#475569; --text-3:#94a3b8;
+  --brand:#b91c1c; --brand-soft:#fef2f2;
+  --gold:#a16207; --blue:#1d4ed8; --green:#15803d; --purple:#7e22ce; --teal:#0f766e; --slate:#475569;
+  --r1:6px; --r2:10px;
+  --shadow:0 1px 3px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+.app{display:grid;grid-template-rows:56px 1fr;grid-template-columns:1fr 400px;grid-template-areas:"header header" "main side";gap:14px;padding:14px;min-height:100vh}
+@media(max-width:1100px){.app{grid-template-columns:1fr;grid-template-areas:"header" "main" "side"}}
+
+/* Header */
+header{grid-area:header;display:flex;align-items:center;gap:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:0 18px;box-shadow:var(--shadow)}
+.logo{font-size:17px;font-weight:700;letter-spacing:1px;white-space:nowrap}
+.logo small{font-size:11px;font-weight:400;color:var(--text-3);margin-left:8px;letter-spacing:0}
+.search{flex:1;max-width:380px;position:relative}
+.search input{width:100%;height:34px;border:1px solid var(--border);border-radius:var(--r1);padding:0 12px 0 32px;font-size:13px;background:var(--surface-2);outline:none}
+.search input:focus{border-color:var(--brand)}
+.search svg{position:absolute;left:10px;top:9px;width:16px;height:16px;color:var(--text-3)}
+.suggest{position:absolute;top:38px;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r1);box-shadow:0 8px 24px rgba(15,23,42,.12);z-index:50;max-height:280px;overflow:auto;display:none}
+.suggest .sg-item{padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--surface-2)}
+.suggest .sg-item:hover{background:var(--surface-2)}
+.suggest .sg-item b{color:var(--brand)}
+.suggest .sg-type{font-size:11px;color:var(--text-3);margin-left:6px}
+.audience{display:flex;border:1px solid var(--border);border-radius:var(--r1);overflow:hidden}
+.audience button{border:0;background:var(--surface);padding:6px 12px;font-size:12.5px;cursor:pointer;color:var(--text-2)}
+.audience button.on{background:var(--brand);color:#fff}
+.hd-note{font-size:11.5px;color:var(--text-3);margin-left:auto;white-space:nowrap}
+
+/* Main column */
+main{grid-area:main;display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);box-shadow:var(--shadow)}
+.map-card{padding:14px 14px 6px}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;flex-wrap:wrap}
+.card-title{font-size:14px;font-weight:600}
+.card-title .tag{font-size:11px;font-weight:400;color:var(--text-3);margin-left:8px}
+.layers{display:flex;gap:6px;flex-wrap:wrap}
+.chk{font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:999px;padding:3px 10px;cursor:pointer;background:var(--surface-2);user-select:none}
+.chk.on{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+.map-wrap{width:100%;position:relative;background:linear-gradient(#fbfcfd,#f6f8fa);border-radius:var(--r1);border:1px solid var(--border)}
+.map-wrap svg{display:block;width:100%;height:auto}
+.terr{transition:opacity .35s ease}
+.river{fill:none;stroke:#60a5fa;stroke-width:1.6;opacity:.55}
+.city-dot{fill:#94a3b8}
+.city-lbl{font-size:10px;fill:#94a3b8}
+.ev-dot{cursor:pointer}
+.ev-dot circle.core{fill:var(--brand);stroke:#fff;stroke-width:1.5}
+.ev-dot circle.halo{fill:none;stroke:var(--brand);stroke-width:1.5;opacity:.5;transform-origin:center;animation:pulse 2s ease-out infinite}
+@keyframes pulse{0%{r:5px;opacity:.5}100%{r:14px;opacity:0}}
+.ev-lbl{font-size:10.5px;font-weight:600;fill:var(--brand);paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none}
+.cap-mark{fill:var(--gold);stroke:#fff;stroke-width:1.2}
+.cap-lbl{font-size:11px;font-weight:700;fill:var(--gold);paint-order:stroke;stroke:#fff;stroke-width:3px}
+.nanhai{fill:none;stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 3}
+.nh-dot{fill:var(--text-3)}
+.nh-lbl{font-size:9px;fill:var(--text-3)}
+.map-legend{display:flex;gap:14px;padding:8px 4px 4px;font-size:11.5px;color:var(--text-2);flex-wrap:wrap}
+.map-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* Timeline */
+.tl-card{padding:12px 16px 14px}
+.tl-now{font-size:13px;font-weight:600}
+.tl-now .yr{color:var(--brand);font-size:16px;margin-right:8px}
+.tl-now .meta{font-weight:400;color:var(--text-2);font-size:12.5px;margin-left:8px}
+.lanes{position:relative;height:34px;margin:10px 0 4px}
+.lane{position:absolute;height:18px;top:8px;border-radius:4px;display:flex;align-items:center;padding:0 6px;font-size:10px;color:#fff;white-space:nowrap;overflow:hidden;cursor:pointer;opacity:.92}
+.lane:hover{opacity:1;outline:2px solid rgba(185,28,28,.35)}
+.lane.coex{height:8px;top:21px;opacity:.8;font-size:0}
+.track{position:relative;height:26px;margin-top:6px;cursor:pointer}
+.tl-line{position:absolute;top:12px;left:0;right:0;height:2px;background:var(--border-strong);border-radius:1px}
+.tl-tick{position:absolute;top:8px;width:1px;height:10px;background:var(--border-strong)}
+.tl-tick span{position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-3);white-space:nowrap}
+.tl-handle{position:absolute;top:4px;width:2px;height:18px;background:var(--brand);transform:translateX(-1px);z-index:5}
+.tl-handle::after{content:"";position:absolute;left:50%;top:-4px;transform:translateX(-50%);width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.tl-hint{font-size:11px;color:var(--text-3);margin-top:12px}
+.tl-hint b{color:var(--text-2)}
+
+/* Event strip */
+.ev-strip{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px}
+.ev-chip{flex:0 0 auto;min-width:150px;max-width:190px;border:1px solid var(--border);border-radius:var(--r1);padding:8px 10px;cursor:pointer;background:var(--surface-2);transition:border-color .15s}
+.ev-chip:hover{border-color:var(--brand)}
+.ev-chip .y{font-size:11px;color:var(--brand);font-weight:600}
+.ev-chip .n{font-size:12.5px;font-weight:600;margin:2px 0}
+.ev-chip .p{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Side panel */
+aside{grid-area:side;display:flex;flex-direction:column;min-height:0}
+.panel{display:flex;flex-direction:column;flex:1;min-height:0}
+.tabs{display:flex;gap:2px;padding:10px 12px 0;border-bottom:1px solid var(--border)}
+.tabs button{border:0;background:none;padding:8px 9px;font-size:13px;color:var(--text-2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+.panel-body{padding:14px 16px;overflow-y:auto;flex:1}
+.empty{color:var(--text-3);font-size:13px;text-align:center;padding:40px 10px}
+.empty .big{font-size:30px;margin-bottom:10px}
+.detail h2{font-size:18px;margin-bottom:2px}
+.detail .sub{font-size:12px;color:var(--text-3);margin-bottom:10px}
+.badge{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;margin-right:6px}
+.b-bc{background:#fef3c7;color:#92400e}
+.b-ev{background:#fee2e2;color:#991b1b}
+.b-pl{background:#dbeafe;color:#1e40af}
+.kv{display:grid;grid-template-columns:64px 1fr;gap:4px 10px;font-size:13px;margin:10px 0}
+.kv dt{color:var(--text-3)}
+.kv dd{color:var(--text-2)}
+.narr{font-size:13.5px;line-height:1.8;background:var(--surface-2);border-left:3px solid var(--brand);padding:10px 12px;border-radius:0 6px 6px 0;margin:10px 0}
+.narr .who{font-size:11px;color:var(--text-3);display:block;margin-bottom:4px}
+.sec-t{font-size:12.5px;font-weight:600;margin:14px 0 6px;color:var(--text-2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips .c{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:2px 10px;cursor:pointer;background:var(--surface)}
+.chips .c:hover{border-color:var(--brand);color:var(--brand)}
+.dispute{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;font-size:12px;color:#92400e;margin-top:10px}
+.signif{font-size:12.5px;color:var(--text-2);margin-top:8px}
+.signif b{color:var(--text)}
+
+/* Sources */
+.src{border:1px solid var(--border);border-radius:var(--r1);padding:10px 12px;margin-bottom:10px;background:var(--surface-2)}
+.src-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.lvl{font-size:10.5px;padding:1px 7px;border-radius:3px;font-weight:600}
+.lvl-1{background:#fee2e2;color:#991b1b}
+.lvl-2{background:#e0e7ff;color:#3730a3}
+.lvl-3{background:#f1f5f9;color:#475569}
+.src-work{font-size:12.5px;font-weight:600}
+.src-text{font-size:13px;line-height:1.9;color:var(--text);font-family:"Songti SC","SimSun",serif}
+.src-trans{font-size:12.5px;color:var(--text-2);margin-top:5px}
+.conf{margin-top:7px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)}
+.conf-bar{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.conf-bar i{display:block;height:100%;background:var(--green)}
+
+/* KG */
+.kg-wrap svg{width:100%;height:auto}
+.kg-node{cursor:pointer}
+.kg-node circle{stroke-width:2}
+.kg-node text{font-size:11px;font-weight:600;fill:#fff;text-anchor:middle;dominant-baseline:central}
+.kg-edge{stroke:var(--border-strong);stroke-width:1.2;fill:none}
+.kg-edge-lbl{font-size:9.5px;fill:var(--text-3)}
+.kg-legend{font-size:11.5px;color:var(--text-2);margin-top:8px}
+.kg-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 10px}
+
+/* Architecture tab */
+.arch-layer{border:1px solid var(--border);border-radius:var(--r1);padding:10px 12px;margin-bottom:8px;background:var(--surface-2)}
+.arch-layer h4{font-size:13px;margin-bottom:3px}
+.arch-layer h4 span{font-size:10.5px;font-weight:400;color:#fff;padding:1px 7px;border-radius:3px;margin-left:6px;vertical-align:1px}
+.arch-layer p{font-size:12px;color:var(--text-2)}
+.arch-arrow{text-align:center;color:var(--text-3);font-size:14px;line-height:1;margin:2px 0}
+.schema-box{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px}
+.schema-box .e{border:1px dashed var(--border-strong);border-radius:5px;padding:5px;text-align:center;font-size:11px;color:var(--text-2);background:var(--surface)}
+
+/* 挂载书库 */
+.book{border:1px solid var(--border);border-radius:var(--r1);padding:11px 12px;margin-bottom:10px;background:var(--surface-2)}
+.book.mounted{border-color:#86efac;background:#f0fdf4}
+.book-top{display:flex;gap:10px;align-items:flex-start}
+.book-sp{flex:0 0 36px;width:36px;height:48px;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.book-info{flex:1;min-width:0}
+.book-info h4{font-size:13.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.book-info .au{font-size:11.5px;color:var(--text-3)}
+.book-tags{margin:6px 0 2px}
+.book-tags .t{font-size:10.5px;border:1px solid var(--border-strong);border-radius:999px;padding:0 8px;color:var(--text-2);margin-right:4px}
+.book-desc{font-size:12px;color:var(--text-2);margin:6px 0 8px;line-height:1.7}
+.book-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-size:12px;border-radius:var(--r1);padding:5px 14px;cursor:pointer;border:1px solid var(--brand);background:var(--brand);color:#fff;font-family:inherit}
+.btn.ghost{background:var(--surface);color:var(--brand)}
+.btn.gray{background:var(--surface);border-color:var(--border-strong);color:var(--text-2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.steps{display:flex;gap:5px;margin:10px 0 6px}
+.step{flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:10.5px;line-height:1.4;color:var(--text-3);background:var(--surface)}
+.step .n{display:block;font-weight:700;margin-bottom:1px}
+.step.on{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);font-weight:600}
+.step.done{color:var(--green);border-color:#86efac;background:#f0fdf4}
+.step-note{font-size:11px;color:var(--text-3);margin:4px 0 8px}
+.prop{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:12px;display:flex;gap:8px;align-items:flex-start;background:var(--surface)}
+.prop.low{border-color:#fde68a;background:#fffbeb}
+.prop input{margin-top:3px}
+.prop .pname{font-weight:600;font-size:12.5px}
+.prop .pdesc{color:var(--text-2);font-size:11.5px;line-height:1.6}
+.prop .pmeta{font-size:10.5px;color:var(--text-3);margin-top:2px}
+.prop .pconf{font-size:11px;color:var(--text-3);white-space:nowrap;margin-top:1px}
+.kind-ic{flex:0 0 22px;height:22px;border-radius:50%;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.mount-stats{font-size:11.5px;color:var(--green);margin:6px 0}
+
+/* 时间轴挂载来源轨道 */
+.mount-row{position:relative;height:10px;margin:3px 0 1px}
+.mt-bar{position:absolute;height:5px;border-radius:3px;top:2px;cursor:pointer;opacity:.8}
+.mt-bar:hover{opacity:1;height:8px;top:1px}
+.mt-lbl{position:absolute;left:4px;top:2px;font-size:9px;color:#fff;white-space:nowrap;line-height:5px}
+.mt-empty{font-size:10px;color:var(--text-3);line-height:10px}
+
+/* 来源筛选 */
+.src-flt{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.src-flt .lb{font-size:11px;color:var(--text-3)}
+.src-flt .f{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:1px 10px;cursor:pointer;background:var(--surface)}
+.src-flt .f.on{border-color:var(--brand);color:#fff;background:var(--brand)}
+.mbadge{font-size:9.5px;padding:0 5px;border-radius:3px;background:#dcfce7;color:#166534;font-weight:600}
+.src-mtag{font-size:10px;padding:0 5px;border-radius:3px;margin-right:4px;font-weight:600}
+.mt2{background:#e0e7ff;color:#3730a3}
+.mt3{background:#f1f5f9;color:#475569}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">华夏时空 · ChronoSino<small>Agent 驱动的中国历史学习与研究平台 · 交互原型</small></div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="searchInput" placeholder="搜索人物 / 事件 / 地点，如：岳飞、安史之乱、长安…" autocomplete="off">
+      <div class="suggest" id="suggest"></div>
+    </div>
+    <div class="audience" id="audience">
+      <button data-a="student" class="on">学生</button>
+      <button data-a="scholar">学者</button>
+      <button data-a="fan">爱好者</button>
+    </div>
+    <div class="hd-note">原型数据为示意样本 · 正式版接入谭其骧地图集与古籍全文库</div>
+  </header>
+
+  <main>
+    <section class="card map-card">
+      <div class="card-head">
+        <div class="card-title">历史地理视图<span class="tag">拖动下方时间轴，疆域与事件点随之变化</span></div>
+        <div class="layers" id="layers">
+          <span class="chk on" data-l="terr">朝代疆域</span>
+          <span class="chk on" data-l="city">现代城市参照</span>
+          <span class="chk on" data-l="river">水系</span>
+          <span class="chk on" data-l="event">事件标记</span>
+        </div>
+      </div>
+      <div class="map-wrap">
+        <svg id="map" viewBox="0 0 700 408" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="map-legend">
+        <span><i style="background:var(--brand)"></i>重大事件（可点击）</span>
+        <span><i style="background:var(--gold)"></i>都城</span>
+        <span><i style="background:#60a5fa;opacity:.6"></i>主要水系</span>
+        <span><i style="background:#94a3b8"></i>现代城市参照点</span>
+      </div>
+    </section>
+
+    <section class="card tl-card">
+      <div class="tl-now"><span class="yr" id="nowYear"></span><span id="nowEmperor"></span><span class="meta" id="nowMeta"></span></div>
+      <div class="lanes" id="lanes"></div>
+      <div class="mount-row" id="mountRow"></div>
+      <div class="track" id="track">
+        <div class="tl-line"></div>
+        <div id="ticks"></div>
+        <div class="tl-handle" id="handle"></div>
+      </div>
+      <div class="tl-hint"><b>操作：</b>在轨道上点击 / 按住拖动切换年份；点击上方彩色朝代条可直接跳转；滚轮也可微调。</div>
+    </section>
+
+    <section class="card tl-card" style="padding-top:10px">
+      <div class="card-head" style="margin-bottom:8px">
+        <div class="card-title">本时期大事<span class="tag" id="stripTag"></span></div>
+        <div class="src-flt" id="srcFilters"></div>
+      </div>
+      <div class="ev-strip" id="evStrip"></div>
+    </section>
+  </main>
+
+  <aside>
+    <section class="card panel">
+      <div class="tabs" id="tabs">
+        <button data-t="detail" class="on">实体详情</button>
+        <button data-t="source">史料溯源</button>
+        <button data-t="kg">关系图谱</button>
+        <button data-t="books">挂载书库</button>
+        <button data-t="arch">技术架构</button>
+      </div>
+      <div class="panel-body" id="panelBody"></div>
+    </section>
+  </aside>
+</div>
+
+<script>
+/* ================= 投影 ================= */
+const W=700,H=394, LON0=72,LON1=136, LAT0=18,LAT1=54;
+const X=lon=>(lon-LON0)/(LON1-LON0)*W;
+const Y=lat=>(LAT1-lat)/(LAT1-LAT0)*H;
+const pts=a=>a.map(p=>X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join(" ");
+
+/* ================= 中国轮廓（简化示意） ================= */
+const outline=[
+[73.5,39.5],[75,40.6],[78,43],[80.4,44.2],[82.5,45.2],[85.7,48.4],[89,48.2],[91,46.8],
+[95,49.2],[99,50.6],[103,51.2],[108,51.6],[113,50.2],[116.5,50.5],[119,52.6],[122,53.3],
+[126,52.2],[130,49.5],[134.7,48.3],[133.5,45.5],[131.8,45],[130.6,42.6],[128,41.8],
+[125.5,40.3],[123,39.6],[121.8,39.1],[121.2,38],[122.8,37.3],[121.2,36.2],[120.4,35],
+[120.2,33.5],[121.6,31.3],[120.8,29],[120,27],[118,24.5],[115,22.8],[112.5,21.8],[110.2,21.2],
+[108.6,21.5],[106.5,21.8],[103,22.5],[101.5,21.6],[100,21.5],[98.4,24],[97.6,27.6],[95,28],
+[92,27.8],[89,28.2],[85.5,28.3],[82,29.5],[79.5,31.5],[77,34.5],[74.6,37.2],[73.5,39.5]];
+
+/* ================= 水系 ================= */
+const rivers=[
+{name:"黄河",d:[[96,35],[100,35.6],[103.8,36.1],[105.5,38],[108.5,40.3],[111,40.6],[112.5,39],[111,5,37.2],[110.4,34.6],[113.6,34.8],[115.5,35.6],[117,36.6],[118.3,37.5],[119.2,37.8]]},
+{name:"长江",d:[[91,33.5],[96,32.5],[101.7,26.6],[104.6,28.7],[106.5,29.6],[108.5,30.2],[111.3,30.7],[113,30.2],[114.3,30.6],[116.5,30.3],[118.8,32],[120.2,31.5],[121.6,31.3]]},
+{name:"珠江",d:[[103.5,25],[106,24],[109,23.3],[112,23.2],[113.5,22.5]]}
+];
+
+/* ================= 现代城市参照 ================= */
+const cities=[["北京",116.4,39.9],["上海",121.5,31.2],["广州",113.3,23.1],["成都",104.1,30.7],["西安",108.9,34.3],["洛阳",112.5,34.6],["南京",118.8,32.1],["杭州",120.2,30.3],["武汉",114.3,30.6],["沈阳",123.4,41.8],["拉萨",91.1,29.6],["乌鲁木齐",87.6,43.8],["昆明",102.7,25],["哈尔滨",126.6,45.8],["兰州",103.8,36.1],["海口",110.3,20.0],["台北",121.5,25.0]];
+
+/* ================= 朝代疆域多边形（示意，正式版替换为谭图矢量数据） ================= */
+const T={};
+function poly(a){return a}
+
+/* ================= 朝代 ================= */
+const dynasties=[
+{id:"xia",name:"夏",span:[-2070,-1600],color:"#a16207",cap:["二里头",112.6,34.7],
+ terr:[[108,36],[111,37],[115,36.5],[117,35.5],[116,34],[113,33.6],[109,34.5]],
+ emperors:[{n:"禹",s:-2070,e:-2061},{n:"桀",s:-1652,e:-1600}]},
+{id:"shang",name:"商",span:[-1600,-1046],color:"#92400e",cap:["殷（安阳）",114.3,36.1],
+ terr:[[108,37],[112,38],[117,37.5],[119,36],[118,34.5],[114,33.5],[109,34.5]],
+ emperors:[{n:"商汤",s:-1600,e:-1588},{n:"纣",s:-1075,e:-1046}]},
+{id:"xizhou",name:"西周",span:[-1046,-771],color:"#b45309",cap:["镐京",108.8,34.1],
+ terr:[[105,37],[109,38],[114,38],[119,37],[120,35.5],[118,33.5],[113,32.8],[107,33.5],[104,35.5]],
+ emperors:[{n:"武王",s:-1046,e:-1043},{n:"幽王",s:-781,e:-771}]},
+{id:"chunqiu",name:"春秋",span:[-770,-476],color:"#ca8a04",cap:["洛邑",112.5,34.6],
+ terr:[[106,36.5],[110,37.5],[115,37.5],[119,36.5],[120,35],[118,33],[113,32.3],[107,33],[105,35]],
+ coex:[{name:"列国林立",color:"#fbbf24",poly:[[105,33],[119,33],[119,31],[112,29],[106,31]]}],
+ emperors:[{n:"周平王",s:-770,e:-720}]},
+{id:"zhanguo",name:"战国",span:[-475,-221],color:"#a16207",cap:["洛邑",112.5,34.6],
+ terr:[[104,37],[108,39],[113,40],[118,40.5],[122,39.5],[121,36],[120,32],[117,29],[112,28.5],[107,30],[103,33]],
+ coex:[{name:"七国",color:"#f59e0b",poly:[[103,30],[118,30],[115,26],[108,26]]}],
+ emperors:[{n:"周赧王",s:-314,e:-256}]},
+{id:"qin",name:"秦",span:[-221,-206],color:"#dc2626",cap:["咸阳",108.7,34.3],
+ terr:[[104,38],[107.5,40.2],[111,41],[115,40.8],[119,40.6],[122.5,40],[123.5,39],[121,36.5],[120.5,33],[119.5,27],[116,23],[112,21.8],[108.5,19],[106,21],[104,23],[103.5,26],[103,31],[104,35]],
+ emperors:[{n:"始皇帝",s:-221,e:-210},{n:"二世皇帝",s:-209,e:-207}]},
+{id:"xihan",name:"西汉",span:[-202,8],color:"#2563eb",cap:["长安",108.9,34.3],
+ terr:[[75,40.5],[80,42.5],[88,44.5],[94,43.5],[98,41.5],[103,40.5],[108,41],[114,41.2],[120,41],[126,40.5],[128.5,40.2],[127,38.5],[123,37.5],[121,33],[119.5,27],[115,22.5],[110,18],[107,20],[104,23],[101,25.5],[98,30],[94,36],[86,39],[78,39.5]],
+ emperors:[{n:"汉高祖 刘邦",s:-202,e:-195},{n:"汉武帝 刘彻",s:-141,e:-87},{n:"汉宣帝",s:-74,e:-49}]},
+{id:"donghan",name:"东汉",span:[25,220],color:"#3b82f6",cap:["洛阳",112.5,34.6],
+ terr:[[97,41],[102,42],[108,41.5],[114,41.2],[120,41],[125,40],[123,37],[121,33],[119,27],[115,22],[110,19],[106,21],[102,23.5],[99,27],[97,32],[96,37]],
+ emperors:[{n:"光武帝 刘秀",s:25,e:57},{n:"汉献帝",s:189,e:220}]},
+{id:"sanguo",name:"三国",span:[220,280],color:"#7c3aed",cap:["洛阳（魏）",112.5,34.6],
+ terr:[[98,40],[103,41.5],[110,41.5],[117,41],[122,40],[123,37],[120,33],[115,30],[108,29.5],[102,31],[98,35]],
+ coex:[{name:"蜀汉",color:"#16a34a",poly:[[102,33],[108,33],[109,30],[106,28],[102,29]]},{name:"吴",color:"#0891b2",poly:[[109,32],[121,32],[120,28],[114,26],[109,28]]}],
+ emperors:[{n:"魏文帝 曹丕",s:220,e:226}]},
+{id:"jin",name:"西晋",span:[266,316],color:"#0891b2",cap:["洛阳",112.5,34.6],
+ terr:[[97,41],[103,42],[110,41.5],[117,41],[122,40],[123,37],[121,33],[118,27],[112,22],[105,22],[100,25],[97,30],[96,36]],
+ emperors:[{n:"晋武帝 司马炎",s:266,e:290}]},
+{id:"dongjin",name:"东晋·十六国",span:[317,420],color:"#0e7490",cap:["建康",118.8,32.1],
+ terr:[[103,32],[108,33],[114,33],[120,33],[121.5,31.5],[120,27],[116,24],[111,22],[106,23],[102,26],[101,30]],
+ coex:[{name:"十六国",color:"#f97316",poly:[[97,41],[108,41],[108,34],[100,34],[96,37]]}],
+ emperors:[{n:"晋元帝 司马睿",s:317,e:323}]},
+{id:"nanbei",name:"南北朝",span:[420,589],color:"#0e7490",cap:["建康（南朝）",118.8,32.1],
+ terr:[[102,32.5],[108,33],[114,33],[120,33],[121,5,31],[120,27],[115,23.5],[110,22],[105,23.5],[101,27]],
+ coex:[{name:"北朝（魏→齐周）",color:"#7c3aed",poly:[[96,41.5],[104,42],[112,41.5],[118,40.5],[117,36],[111,33.5],[103,34],[97,37]]}],
+ emperors:[{n:"宋武帝 刘裕",s:420,e:422},{n:"北魏孝文帝",s:471,e:499}]},
+{id:"sui",name:"隋",span:[581,618],color:"#ca8a04",cap:["大兴城",108.9,34.3],
+ terr:[[98,40.5],[103,42],[110,42],[117,41.5],[122,40.5],[124,39],[122,36],[120.5,32],[119,26],[114,22],[108,21],[103,23],[99,27],[97,33]],
+ emperors:[{n:"隋文帝 杨坚",s:581,e:604},{n:"隋炀帝",s:604,e:618}]},
+{id:"tang",name:"唐",span:[618,907],color:"#16a34a",cap:["长安",108.9,34.3],
+ terr:[[70,40],[76,43],[82,46],[88,48.5],[95,51],[103,52.5],[112,51.5],[119,49],[125,45],[128,41],[126,38.5],[122,36],[120.5,5,31],[119,26],[115,22.5],[110,20.5],[105,21.5],[101,24],[97,28],[90,32],[80,36],[72,39]],
+ coex:[{name:"吐蕃",color:"#0d9488",poly:[[80,32],[86,33.5],[92,34],[98,33.5],[101,31.5],[100,28.5],[94,27.5],[88,28.5],[82,30]]},{name:"南诏",color:"#65a30d",poly:[[98,28],[102,28.5],[104,26],[102,24],[98,25]]}],
+ emperors:[{n:"唐太宗 李世民",s:626,e:649,era:"贞观",es:627},{n:"武则天",s:690,e:705},{n:"唐玄宗 李隆基",s:712,e:756,era:"开元·天宝",es:713},{n:"唐肃宗",s:756,e:762}]},
+{id:"wudai",name:"五代十国",span:[907,960],color:"#65a30d",cap:["开封",114.3,34.8],
+ terr:[[106,39],[110,40],[115,40],[120,39.5],[120,36],[117,33],[112,32.5],[107,34],[105,37]],
+ coex:[{name:"十国（南方割据）",color:"#0d9488",poly:[[105,32],[120,32],[119,26],[112,24],[106,27]]},{name:"契丹（辽）",color:"#9333ea",poly:[[115,44],[124,45],[127,43],[122,41],[116,41.5]]}],
+ emperors:[{n:"后梁太祖 朱温",s:907,e:912}]},
+{id:"beisong",name:"北宋",span:[960,1127],color:"#0d9488",cap:["东京开封府",114.3,34.8],
+ terr:[[103,37.5],[107,39],[112,40],[117,40.3],[120,39.5],[122,37.5],[121,33.5],[119.5,28],[116,23.5],[111,21.5],[106,22.5],[102,25],[101.5,30],[102,35]],
+ coex:[{name:"辽",color:"#9333ea",poly:[[112,43],[119,44],[126,46],[128,44],[125,41],[119,40.5],[113,40.3],[110,42]]},{name:"西夏",color:"#b45309",poly:[[100.5,39],[105,40],[110,39.5],[111,37],[108,35.5],[103,35.5]]}],
+ emperors:[{n:"宋太祖 赵匡胤",s:960,e:976},{n:"宋仁宗",s:1022,e:1063},{n:"宋神宗",s:1067,e:1085}]},
+{id:"nansong",name:"南宋",span:[1127,1279],color:"#0f766e",cap:["临安",120.2,30.3],
+ terr:[[102,33],[107,34],[113,34.5],[119,34.5],[121,33],[121,29],[119,25],[115,22],[110,21],[105,22.5],[101,25],[100,30]],
+ coex:[{name:"金",color:"#b91c1c",poly:[[105,44],[113,45],[122,46],[128,45],[127,41],[121,38],[114,35],[107,38],[104,40]]},{name:"西夏",color:"#b45309",poly:[[100.5,39],[105,40],[110,39.5],[111,37],[108,35.5],[103,35.5]]},{name:"蒙古（1206起）",color:"#475569",poly:[[96,50],[112,51],[120,49],[118,44],[108,42],[100,44]]}],
+ emperors:[{n:"宋高宗 赵构",s:1127,e:1162,era:"绍兴",es:1131}]},
+{id:"yuan",name:"元",span:[1271,1368],color:"#475569",cap:["大都",116.4,39.9],
+ terr:[[73,40],[79,45],[86,48],[93,50.5],[101,52.5],[109,53],[117,52.5],[125,51.5],[131,49],[134.7,48],[132,44],[128,41.5],[124,38.5],[121,33],[119,26],[115,22.5],[110,20.5],[104,22],[100,25],[94,29],[86,34],[78,38]],
+ emperors:[{n:"元世祖 忽必烈",s:1260,e:1294,era:"至元",es:1264},{n:"元顺帝",s:1333,e:1368}]},
+{id:"ming",name:"明",span:[1368,1644],color:"#7e22ce",cap:["北京（1421起）",116.4,39.9],
+ terr:[[97,41],[101,43],[107,42.5],[114,42.3],[121,41.5],[126,42],[127.5,40.5],[124,38],[121.5,34.5],[120.5,29],[118,24.5],[114,22.3],[109,21],[105,22],[101,24.5],[98,28.5],[96,33],[96,38]],
+ emperors:[{n:"明太祖 朱元璋",s:1368,e:1398,era:"洪武",es:1368},{n:"明成祖 朱棣",s:1402,e:1424,era:"永乐",es:1403},{n:"明神宗",s:1572,e:1620,era:"万历",es:1573},{n:"崇祯帝",s:1627,e:1644}]},
+{id:"qing",name:"清",span:[1644,1912],color:"#1e40af",cap:["北京",116.4,39.9],
+ terr:[[73,39.5],[78,43.5],[84,47],[90,49],[97,50.5],[104,52],[111,53],[119,53],[127,51.5],[132,49],[134.7,48],[131,44],[127,42],[123,39],[120.5,34],[118.5,27],[114,22.2],[109,20.8],[105,21.8],[101,23],[97,26],[91,28.5],[84,30.3],[78,33.5]],
+ emperors:[{n:"清圣祖 康熙",s:1661,e:1722,era:"康熙",es:1662},{n:"雍正",s:1722,e:1735},{n:"乾隆帝",s:1735,e:1795,era:"乾隆",es:1736},{n:"道光帝",s:1820,e:1850},{n:"光绪帝",s:1875,e:1908,era:"光绪",es:1875}]}
+];
+
+/* ================= 史料库 ================= */
+const sources={
+qin_unify:[
+ {lvl:1,work:"《史记·秦始皇本纪》",text:"二十六 年……秦初并天下，令丞相、御史曰：「……寡人以眇眇之身，兴兵诛暴乱，赖宗庙之灵，六王咸伏其辜，天下大定。今名号不更，無以称成功，传後世。其议帝号。」",trans:"公元前221年，秦兼并六国，秦王令群臣议定新名号，最终取「三皇五帝」之称，号曰「皇帝」。",conf:.97},
+ {lvl:1,work:"秦铜方升 / 峄山刻石（出土与传世金石）",text:"廿六年，皇帝尽并兼天下诸侯，黔首大安，立号为皇帝。乃诏丞相状、绾：法度量则不壹歉疑者，皆明壹之。",trans:"秦始皇二十六年统一度量衡的官方诏书，与《史记》互证。",conf:.95},
+ {lvl:2,work:"钱穆《秦汉史》（1957）",text:"秦之统一，不仅为政治军事之成功，实亦战国以来历史演进之必然趋势。",trans:"现代学者观点：大一统是战国以来经济、制度演进的结果，非仅武力所致。",conf:.7}],
+fenshu:[
+ {lvl:1,work:"《史记·秦始皇本纪》",text:"臣请史官非秦记皆烧之。非博士官所职，天下敢有藏《诗》《书》、百家语者，悉诣守、尉杂烧之。有敢偶语《诗》《书》者弃市，以古非今者族。",trans:"李斯建议：除秦国史书与医药、卜筮、种树之书外，民间所藏诗书百家语一律烧毁。",conf:.92}],
+daze:[
+ {lvl:1,work:"《史记·陈涉世家》",text:"且壯士不死即已，死即舉大名耳，王侯將相寧有種乎！",trans:"陈胜吴广在大泽乡起义，喊出「王侯将相难道天生贵种吗」，中国历史上第一次大规模平民起义。",conf:.96}],
+gaixia:[
+ {lvl:1,work:"《史记·项羽本纪》",text:"项王军壁垓下，兵少食尽，汉军及诸侯兵围之数重。夜闻汉军四面皆楚歌……",trans:"垓下之战，项羽陷入四面楚歌之境，突围至乌江自刎，楚汉战争结束。",conf:.95}],
+zhangqian:[
+ {lvl:1,work:"《汉书·张骞李广利传》",text:"騫以郎應募，使月氏，與堂邑氏奴甘父俱出隴西……然騫鑿空，諸後使往者皆稱博望侯。",trans:"张骞应募出使大月氏，被扣匈奴十余年仍持汉节不失；《汉书》以「凿空」一词肯定其开通西域之功。",conf:.94},
+ {lvl:2,work:"葛剑雄《中国人口史》等相关研究",text:"张骞通西域后，丝绸之路渐成东西方文明交流的主动脉。",trans:"现代史学：丝路并非一时一人所开，张骞之后历经两汉长期经营方成通道。",conf:.68}],
+mobei:[
+ {lvl:1,work:"《史记·卫将军骠骑列传》",text:"骠骑将军去病率师，躬将所获荤粥之士，约轻赍，绝大幕……封于狼居胥山，禅于姑衍，登临翰海。",trans:"元狩四年（前119），霍去病深入漠北，封狼居胥，是汉对匈奴战争的巅峰。",conf:.93}],
+chibi:[
+ {lvl:1,work:"《三国志·吴书·周瑜传》",text:"權遂遣瑜及程普等與備并力逆曹公，遇於赤壁。時曹公軍眾已有疾病，初一交戰，公軍敗退，引次江北。",trans:"建安十三年（208），孙刘联军于赤壁破曹，火烧连营（火攻细节另见裴注引《江表传》）。",conf:.85},
+ {lvl:3,work:"《三国演义》第四十九回（明代小说，非信史）",text:"七星坛诸葛祭风，三江口周瑜纵火。",trans:"「借东风」为文学虚构，学者模式提示：不可作为史实引用。",conf:.2}],
+feishui:[
+ {lvl:1,work:"《晋书·苻坚载记》",text:"坚与苻融登城而望王师，见部阵齐整，将士精锐；又北望八公山上草木，皆类人形……",trans:"383年淝水之战，前秦苻坚「草木皆兵」，大败后溃兵「风声鹤唳」。东晋以少胜多，南北对峙格局延续。",conf:.9}],
+dayunhe:[
+ {lvl:1,work:"《隋书·炀帝纪》",text:"（大业元年）发河南诸郡男女百余万，开通济渠，自西苑引谷、洛水达于河，自板渚引河入汴……",trans:"605年起隋炀帝征发百万民力开凿通济渠等，大运河贯通南北，但也成为隋末民变的诱因之一。",conf:.88}],
+xuanwumen:[
+ {lvl:1,work:"《资治通鉴·唐纪七》",text:"庚申，世民帥長孫無忌等入，伏兵於玄武門……建成、元吉至臨湖殿，覺變，即跋馬東歸宮府。世民從而呼之，元吉張弓射世民，再三不彀。",trans:"武德九年（626）六月初四，李世民在玄武门设伏杀太子建成、齐王元吉，后受禅即位。",conf:.93}],
+anlushan:[
+ {lvl:1,work:"《资治通鉴·唐纪三十三》",text:"安祿山使副將何千年、高邈等將奚騎二十……甲子，祿山發所部兵及同羅、奚、契丹、室韋凡十五萬眾，號二十萬，反於范陽。",trans:"天宝十四载（755）十一月，安禄山以「讨杨国忠」为名在范阳起兵，安史之乱爆发。",conf:.94},
+ {lvl:1,work:"《旧唐书·郭子仪传》",text:"自燕盜起，玄宗西幸，天下兵事，一以委之……",trans:"郭子仪、李光弼等历经八年平叛，唐朝从此由盛转衰，藩镇割据形成。",conf:.85},
+ {lvl:3,work:"白居易《长恨歌》（806）",text:"漁陽鼙鼓動地來，驚破霓裳羽衣曲。",trans:"时人文学作品，记录动乱对盛世的冲击；属诗歌证史，细节有艺术加工。",conf:.5}],
+chenqiao:[
+ {lvl:1,work:"《宋史·太祖本纪》",text:"夜五鼓，軍士集驛門，宣言策點檢為天子……有以黃衣加太祖身，眾皆羅拜，即萬歲聲聞數十里。",trans:"显德七年（960）陈桥兵变，赵匡胤「黄袍加身」，建立宋朝，随后「杯酒释兵权」确立重文抑武国策。",conf:.9}],
+jingkang:[
+ {lvl:1,work:"《宋史·钦宗本纪》",text:"（靖康二年）夏四月庚申朔，大風吹石折木。金人以帝及皇后、皇太子北歸。凡鹵簿、冠服、禮器……法駕、仗衛，天下州府圖籍，官吏、內人、內侍、技藝、工匠、娼優，府庫畜積，為之一空。",trans:"1127年金兵破开封，掳徽钦二帝及宗室、礼器、图籍北去，北宋灭亡，史称靖康之变。",conf:.93}],
+yuefei:[
+ {lvl:1,work:"《宋史·岳飞传》",text:"帝初為飛營第，飛辭曰：「敵未滅，何以家為？」或問天下何時太平，飛曰：「文臣不愛錢，武臣不惜死，天下太平矣。」",trans:"岳飞矢志抗金，后被宋高宗、秦桧以十二道金牌召回，以「莫须有」罪名杀害于临安大理寺。",conf:.9},
+ {lvl:2,work:"邓广铭《岳飞传》（1946/修订版）",text:"岳飞是南宋最杰出的军事统帅，其抗金事业具有保卫南方先进经济文化区的正义性质。",trans:"现代岳飞研究的奠基之作；近年学界对「朱仙镇大捷」等细节的史料依据亦有讨论。",conf:.72}],
+mon_unify:[
+ {lvl:1,work:"《蒙古秘史》（《元朝秘史》）",text:"……虎兒年，於斡難河源，建九腳白纛，共尊帖木真為成吉思合罕。",trans:"1206年（丙寅/虎儿年），铁木真在斡难河源被尊为成吉思汗，统一蒙古高原。",conf:.9}],
+dadu:[
+ {lvl:1,work:"《元史·世祖本纪》",text:"（至元八年）十一月……建國號曰「大元」，蓋取《易經》「乾元」之義。",trans:"1271年忽必烈取《易经》「大哉乾元」定国号为大元；1267年起营建大都，即今北京前身。",conf:.92}],
+zhenghe:[
+ {lvl:1,work:"《明史·郑和传》",text:"永樂三年六月，命和及其儕王景弘等通使西洋。將士卒二萬七千八百餘人，多齎金幣，造大舶，修四十四丈、廣十八丈者六十二。",trans:"1405年起郑和七下西洋，远航至东非。注：宝船「长四十四丈」的尺度学界尚有争议。",conf:.82},
+ {lvl:2,work:"剑桥中国明代史 / 近年宝船复原研究",text:"关于宝船确切尺寸，因史料与考古证据不足，学术界存在多种估算。",trans:"争议提示：船体尺度、船队性质（朝贡贸易/政治威慑）至今是学术热点。",conf:.55}],
+yaopian:[
+ {lvl:1,work:"《清史稿·宣宗本纪》及《南京条约》（1842）",text:"……因大英商船遠路涉洋，往往有損壞須修補者，自應給予沿海一處，以便修船及存守所用物料。今大皇帝准將香港一島給予大英國君主暨嗣後世襲主位者常遠據守主掌。",trans:"1840—1842年鸦片战争，清朝战败，割香港岛、开五口通商，中国进入近代史。",conf:.95}],
+jiawu:[
+ {lvl:1,work:"《马关条约》（1895）",text:"中國將管理下開地方之權並將該地方所有堡壘、軍器、工廠及一切屬公物件，永遠讓與日本：一、奉天省南邊地方……二、臺灣全島及所有附屬各島嶼……",trans:"1894—1895甲午战争清朝战败，割台湾、赔二亿两白银，列强随即掀起瓜分狂潮。",conf:.96}],
+longchang:[
+ {lvl:1,work:"《王文成公全书·年谱》",text:"忽中夜大悟格物致知之旨，寤寐中若有人語之者，不覺呼躍，從者皆驚。",trans:"1508年王阳明谪居贵州龙场，夜半顿悟「圣人之道，吾性自足」，史称龙场悟道，阳明心学由此奠基。",conf:.88}]
+};
+
+/* ================= 事件 ================= */
+const events=[
+{id:"qin_unify",name:"秦灭六国，大一统",year:-221,dyn:"qin",lon:108.7,lat:34.3,place:"咸阳",
+ actors:["qsh","lisi"],
+ s:{student:"公元前221年，秦王嬴政灭掉六国，建立中国历史上第一个统一的中央集权王朝，自称「始皇帝」。统一文字、度量衡、货币，修驰道、筑长城。",
+    scholar:"秦王政二十六年（前221）灭齐，六国尽并。废分封行郡县，书同文、车同轨、统一度量衡。秦制奠定此后两千年帝制基本框架，柳宗元《封建论》谓之「公天下之端自秦始」。",
+    fan:"三十代秦王攒了五百年的家底，被嬴政十年花光——哦不，是换成了整个天下。39岁完成统一，他给自己发明了个新头衔：皇帝。"},
+ significance:"中国从封建贵族社会进入中央集权帝制时代；「大一统」成为此后历史的主流政治理念。",dispute:null},
+{id:"fenshu",name:"焚书坑儒",year:-213,dyn:"qin",lon:108.7,lat:34.3,place:"咸阳",actors:["qsh","lisi"],
+ s:{student:"前213年秦始皇采纳李斯建议焚烧民间诗书，后又坑杀方士儒生，激化了社会矛盾。",scholar:"焚书（前213）与坑儒（前212）性质不同：所焚主要为民间私藏之《诗》《书》及六国史记，博士官所职不焚；「坑儒」对象初为诈骗的方士，牵连儒生。后世叙述多有层累放大。",fan:"秦始皇烧的不是所有书——图书馆（博士官）的副本留着。真正让古籍失传的是项羽那把咸阳的火。"},
+ significance:"思想统制的开端，对先秦文献传承造成重大打击。",dispute:"「坑儒」对象是儒生还是方士、焚书范围多大，学界长期有争论。"},
+{id:"daze",name:"陈胜吴广起义",year:-209,dyn:"qin",lon:117.1,lat:33.6,place:"大泽乡（今安徽宿州）",actors:["chenshe"],
+ s:{student:"前209年，戍边误期的陈胜、吴广在大泽乡起义，喊出「王侯将相宁有种乎」，六国旧贵族纷纷响应，秦朝迅速崩溃。",scholar:"二世元年七月，发闾左谪戍渔阳，九百人屯大泽乡，遇雨失期，按律当斩，遂反。这是中国史上第一次大规模平民起事，「布衣起而亡秦」成为后世王朝循环的经典命题。",fan:"迟到也是死，造反也是死——两个小连长带着900人，敲响了中国第一个帝国的丧钟。"},
+ significance:"首次平民武装推翻王朝的范本，「揭竿而起」进入政治文化。"},
+{id:"gaixia",name:"垓下之战",year:-202,dyn:"qin",lon:117.6,lat:33.2,place:"垓下（今安徽灵璧）",actors:["xiangyu","liubang"],
+ s:{student:"楚汉相争的决战，刘邦联军四十万围项羽十万，四面楚歌，项羽突围至乌江自刎，刘邦建立汉朝。",scholar:"高祖五年（前202）十二月，韩信三十万自当之，孔将军、费将军分居左右，楚兵大败。夜闻汉军四面楚歌，项王以为楚地尽失。项羽乌江自刎事见《史记·项羽本纪》，太史公叙事极具文学性，细节辨析可参后世考史。",fan:"十面埋伏、四面楚歌、霸王别姬、乌江自刎——一场战争贡献了一半的后世成语和京剧剧目。"},
+ significance:"四年楚汉战争结束，西汉建立。"},
+{id:"zhangqian",name:"张骞凿空西域",year:-138,dyn:"xihan",lon:108.9,lat:34.3,place:"长安出发",actors:["zhangqian","hanwudi"],
+ s:{student:"汉武帝派张骞出使西域联络大月氏夹击匈奴，往返被扣十余年，却开辟了影响千年的丝绸之路。",scholar:"建元三年（前138）张骞应募出陇西，径匈奴中被扣十余年，持汉节不失；元朔三年归。《史记·大宛列传》《汉书·张骞传》是基本史料。「凿空」之评准确：此后汉设河西四郡、西域都护府。",fan:"138人出发，13年后只剩2人回来。任务（结盟大月氏）失败了，但情报价值大到汉武帝原地狂喜。"},
+ significance:"丝绸之路开通，东西方物种、技术、宗教大规模交流的起点。"},
+{id:"mobei",name:"漠北之战 · 封狼居胥",year:-119,dyn:"xihan",lon:111,lat:46.5,place:"漠北（今蒙古国北部）",actors:["huoqubing","weiqing","hanwudi"],
+ s:{student:"卫青、霍去病各率五万骑深入漠北，霍去病封狼居胥，匈奴主力遭毁灭性打击，「漠南无王庭」。",scholar:"元狩四年（前119）春，卫青出定襄、霍去病出代郡。去病封狼居胥山、禅姑衍、登临翰海，斩俘七万余级。是役后匈奴远遁，而汉亦损耗巨大：出塞马匹十四万，归者不满三万。",fan:"22岁的霍去病把武将的荣耀刷到了天花板——「封狼居胥」从此成为后世所有名将的终极梦想。"},
+ significance:"汉匈战争战略转折，保障河西丝路安全。"},
+{id:"chibi",name:"赤壁之战",year:208,dyn:"donghan",lon:113.9,lat:29.7,place:"赤壁（今湖北赤壁）",actors:["caocao","zhugele","zhouyu"],
+ s:{student:"208年，孙权刘备联军在赤壁以火攻大败曹操，奠定三国鼎立局面。",scholar:"建安十三年冬，曹军已有疾疫，初一交战即败退江北；黄盖诈降火攻事见《周瑜传》及裴注。需要辨析：曹军兵力号称八十万，学界多认为实际二十余万；「草船借箭」「借东风」均为后世小说虚构。",fan:"真实的赤壁没有借东风，只有瘟疫、东南风（冬天其实偶有），和黄盖真的很敢。诸葛亮此时主要贡献是外交联络。"},
+ significance:"三分格局形成，统一进程推迟约七十年。",dispute:"具体战场位置（蒲圻/黄州诸说）、兵力数字、火攻细节学界有不同考证。"},
+{id:"feishui",name:"淝水之战",year:383,dyn:"dongjin",lon:116.8,lat:32.6,place:"淝水（今安徽寿县一带）",actors:["fujian","xiean"],
+ s:{student:"东晋八万北府兵击败前秦苻坚近九十万大军，保住了南朝，成语「草木皆兵」「风声鹤唳」都出自此战。",scholar:"太元八年（383），苻坚号众八十七万实为前锋约二十五万。谢玄以「移阵少却」诱使秦军后撤，一退不可收拾，苻融马倒被杀。是役决定了胡汉南北分立的长期格局，江南开发进程未被打断。",fan:"人类历史上最离谱的踩踏事故：军队只是按计划「稍微后退一下」，然后有人喊了一嗓子「秦军败了」，几十万人就真的崩了。"},
+ significance:"南北对峙延续，东晋偏安与江南开发得以保持。"},
+{id:"dayunhe",name:"开凿大运河",year:605,dyn:"sui",lon:112.5,lat:34.6,place:"洛阳为中心，北达涿郡南至余杭",actors:["yangdi"],
+ s:{student:"605年起隋炀帝开凿以洛阳为中心、北达北京南至杭州的大运河，沟通五大水系，至今仍是世界最长运河。",scholar:"大业元年开通济渠，四年开永济渠，六年修江南河。运河打通海河-黄河-淮河-长江-钱塘江五大水系，但其役使民力数百万，死亡枕藉，与征高句丽同为隋亡主因。唐人皮日休论：「尽道隋亡为此河，至今千里赖通波。」",fan:"隋朝版的「罪在当代，功在千秋」：一条河把自己修亡国了，却养活了之后唐宋元明清一千年。"},
+ significance:"中国经济动脉南移后维持南北一统的关键基础设施。"},
+{id:"xuanwumen",name:"玄武门之变",year:626,dyn:"tang",lon:108.9,lat:34.3,place:"长安玄武门",actors:["tangtaizong"],
+ s:{student:"626年李世民在玄武门杀死太子李建成和齐王李元吉，随后即位为唐太宗，开创贞观之治。",scholar:"武德九年六月四日，秦王世民伏兵玄武门，杀建成、元吉，史称「玄武门之变」；八月高祖禅位。此事的道德争议与贞观之治的治世成就构成李世民评价的两面，《太宗实录》经其索阅，史料可能存在修饰。",fan:"他篡改了史书吗？大概率改了。但他也用二十三年的贞观之治，让后人不太好意思只骂他。"},
+ significance:"贞观时代开启，天可汗体系建立。",dispute:"事件起因（先发制人/长期预谋）、史书是否被干预，学界讨论很多。"},
+{id:"anlushan",name:"安史之乱",year:755,dyn:"tang",lon:116.4,lat:39.9,place:"范阳起兵（今北京）",actors:["anlushan","tangxuanzong","guoziyi"],
+ s:{student:"755年节度使安禄山叛乱，八年战乱两京沦陷，唐朝由盛转衰，此后藩镇割据一百多年。",scholar:"天宝十四载十一月安禄山反于范阳，次年正月称帝建燕；六月潼关失守，玄宗奔蜀，马嵬之变杨贵妃缢死。乱平（763）后河北藩镇世袭、中央财赋仰赖江南，均田制与府兵制彻底瓦解。陈寅恪以「种族文化」论析其起因。",fan:"盛唐在最繁华的顶峰（整个长安城还在为杨贵妃的荔枝疯狂），被一个300斤的胡人大将一巴掌拍醒。",scholar_note:""},
+ significance:"唐宋变革的起点：经济重心南移加速、门阀衰落、平民社会与科举官僚兴起。",dispute:"叛乱的民族-阶级性质、河北「胡化」程度，从陈寅恪到现代学界有多种解释。"},
+{id:"chenqiao",name:"陈桥兵变 · 黄袍加身",year:960,dyn:"beisong",lon:114.4,lat:34.9,place:"陈桥驿（今开封东北）",actors:["zhaokuangyin"],
+ s:{student:"960年后周大将赵匡胤在陈桥驿被军士黄袍加身，建立宋朝，随后杯酒释兵权，确立重文抑武国策。",scholar:"显德七年正月，北汉结契丹来犯（此事真伪存疑），太祖率军北上至陈桥，兵变回师开封，市不易肆。其释兵权、文臣知州、转运使理财，收藩镇之权，结束五代乱局，亦造成宋代「积弱」。",fan:"史上最和平的政变：不死一个人、不抢一家店，睡了一觉醒来就当皇帝了——剧本写得太好了，好到所有人都怀疑是自导自演。"},
+ significance:"五代军阀政治终结，「皇帝与士大夫共治天下」的文官时代开始。"},
+{id:"jingkang",name:"靖康之变",year:1127,dyn:"beisong",lon:114.3,lat:34.8,place:"汴京（今开封）",actors:["songhuizong","qinhui"],
+ s:{student:"1127年金兵攻破开封，掳走徽钦二帝及宗室、礼器、藏书北去，北宋灭亡，是宋人称之的「靖康耻」。",scholar:"靖康元年闰十一月城破，二年四月金人掳二帝、六宫、百工、礼器、图籍北撤。开封城破既有军事失败，亦有神棍郭京「六甲神兵」开宣化门之荒诞。北宋一百六十年积蓄的礼乐文物尽失，影响了南宋初年的制度重建。",fan:"一个艺术家皇帝（徽宗的瘦金体和花鸟画都是顶级）加上一个神棍（神兵退敌），联手奉上了中原王朝最屈辱的一页。"},
+ significance:"宋室南渡，中国经济文化重心彻底南移。"},
+{id:"mon_unify",name:"成吉思汗统一蒙古",year:1206,dyn:"nansong",lon:108,lat:48.5,place:"斡难河源（今蒙古国）",actors:["genghis"],
+ s:{student:"1206年铁木真统一蒙古各部，被尊为成吉思汗，建立大蒙古国，随后发动横扫欧亚的征服战争。",scholar:"1206年忽里勒台大会上铁木真受「成吉思汗」尊号，建九十五千户、颁大扎撒、创畏兀体蒙文。其后南征夏金、西征花剌子模，灭国四十。蒙古扩张的残酷性与欧亚大陆世界体系的打通，是评价其一体两面。",fan:"一个父亲被杀、妻子被掳、自己差点死在木笼里的草原孤儿，最终建立了人类历史上最大的连续陆地帝国。"},
+ significance:"蒙古世界帝国的起点，欧亚大陆从隔离进入直接接触时代。"},
+{id:"dadu",name:"建号大元 · 营建大都",year:1271,dyn:"yuan",lon:116.4,lat:39.9,place:"大都（今北京）",actors:["hubilie"],
+ s:{student:"1271年忽必烈定国号「大元」，定都大都，1279年灭南宋完成统一，北京自此成为元明清三代都城。",scholar:"至元八年取《易·乾》「大哉乾元」建国号，突破此前以地名为国号传统；大都由刘秉忠规划，《马可·波罗行纪》有详记（夸大处需辨析）。元创行省制，是后世省制之始。",fan:"忽必烈干了一件影响到你今天身份证的事——行省制，你所在的「XX省」的轮廓就从那时开始长出来的。"},
+ significance:"省制确立，北京成为全国政治中心，多民族统一国家发展。"},
+{id:"zhenghe",name:"郑和下西洋",year:1405,dyn:"ming",lon:118.8,lat:32.0,place:"南京出发（刘家港集结）",actors:["zhenghe","mingchengzu"],
+ s:{student:"1405到1433年，郑和率两万七千余人的庞大船队七下西洋，最远到达东非，比哥伦布早近九十年。",scholar:"郑和七次奉使，历三十余国，基本史料为《明史·郑和传》、《娄东刘家港天妃宫石刻通番事迹记》及《瀛涯胜览》《星槎胜览》。其性质是朝贡贸易体系下的政治航行为主，不计经济效益，故仁宗以后难以为继。",fan:"带了27000人去搞「撒币外交」，换回长颈鹿（被当成麒麟）和各国朝贡使——航海史上最壮观的赔本买卖。"},
+ significance:"前地理大发现时代规模最大的远洋航行，朝贡体系巅峰。",dispute:"宝船尺度（四十四丈说）、是否发现美洲/澳洲，学界争论激烈。"},
+{id:"longchang",name:"王阳明龙场悟道",year:1508,dyn:"ming",lon:106.6,lat:26.8,place:"贵州龙场（今修文）",actors:["wangyangming"],
+ s:{student:"1508年被贬到贵州龙场的王阳明在艰苦中悟出「心即理」，创立阳明心学，提出知行合一、致良知。",scholar:"正德三年春王阳明谪龙场驿丞，石棺自誓，中夜大悟格物致知之旨。其学承陆九渊而开新，与程朱理学形成明代思想两大脉络；门人后分浙中、江右、泰州等派，泰州学派下启晚明思想解放。",fan:"一个被太监追杀、靠假死才活下来、住山洞的倒霉官员，在贵州的山洞里想通了一个问题：答案不在书里，在你心里。"},
+ significance:"影响东亚五百年的思想运动，明治维新的重要精神资源。"},
+{id:"yaopian",name:"鸦片战争",year:1840,dyn:"qing",lon:113.3,lat:23.1,place:"广州→东南沿海→南京",actors:["linzexu"],
+ s:{student:"1840年英国为鸦片贸易发动战争，清朝战败签订《南京条约》，割香港岛、赔款、开五口通商，中国进入近代史。",scholar:"道光二十年（1840）六月英舰北犯，二十二年七月《江宁条约》成：割香港岛、赔2100万银元、五口通商、协定关税。费正清「冲击-回应」范式与近年「中国中心观」（柯文）对战争意义有不同解释框架。",fan:"英国议会以271对262票通过的战争——仅9票之差，差点没有这场战争；但战争的胜负，早在马戛尔尼1793年访清时就已注定。"},
+ significance:"不平等条约体系开端，中国被卷入近代世界体系。"},
+{id:"jiawu",name:"甲午中日战争",year:1894,dyn:"qing",lon:122.3,lat:37.6,place:"黄海 · 辽东 · 山东",actors:["lihongzhang"],
+ s:{student:"1894—1895年甲午战争，北洋水师全军覆没，签订《马关条约》割台湾赔二亿两，引发列强瓜分狂潮和后来的戊戌变法。",scholar:"光绪二十年七月开战，黄海海战北洋舰队损失五舰但主力尚存，最终因「保船制敌」方针困守威海卫而全军覆没。1895年《马关条约》割辽东（三国干涉还辽）、台湾、澎湖。此战是洋务运动失败的宣告，也直接催生了康梁变法与孙中山革命。",fan:"当时全亚洲最强的两艘铁甲舰（定远、镇远），一艘自爆、一艘被俘虏后编入日本海军——它后来参加了对马海战，击沉了俄国军舰。"},
+ significance:"东亚千年朝贡秩序彻底终结，日本崛起，中国近代转型急转直下。"}
+];
+
+/* ================= 人物 ================= */
+const people=[
+{id:"qsh",name:"秦始皇 嬴政",years:[-259,-210],dynasty:"qin",home:"邯郸出生，咸阳执政",
+ s:{student:"中国第一位皇帝。13岁即位，39岁统一六国，推行郡县制、统一文字度量衡，也因暴政和严刑峻法导致秦朝速亡。",scholar:"嬴政或名赵正，生于赵都邯郸。其评价自贾谊《过秦论》「仁义不施而攻守之势异也」到章太炎、毛泽东，两极贯穿两千年。睡虎地秦简显示秦法细密程度，秦亡于政（急政）而非纯于法是近几十年主流修正。",fan:"一个工作狂：每天不批完60斤竹简不休息。五次东巡，最后死在出差路上——还被咸鱼盖着遗体运回了咸阳。"}},
+{id:"lisi",name:"李斯",years:["? ", -208],dynasty:"qin",home:"楚上蔡（今河南上蔡）",
+ s:{student:"秦朝丞相，荀子学生，策划统一制度、小篆标准字体；秦始皇死后与赵高矫诏，最终被赵高腰斩灭族。",scholar:"李斯师荀卿，西入秦为吕不韦舍人，《谏逐客书》为千古名文。秦制多出其手。沙丘之谋改立胡亥，二世二年具五刑腰斩咸阳，夷三族。",fan:"写过史上最牛求职信（《谏逐客书》）的人，最后输给了一个指鹿为马的太监。"}},
+{id:"hanwudi",name:"汉武帝 刘彻",years:[-156,-87],dynasty:"xihan",home:"长安",
+ s:{student:"在位54年，北击匈奴、凿空西域、独尊儒术，把汉朝推向鼎盛；晚年穷兵黩武，下轮台罪己诏。",scholar:"刘彻，景帝子。内兴制度：中朝、刺史、盐铁官营、均输平准、独尊儒术（实为外儒内法）；外征四夷，疆域几翻倍。末年巫蛊之祸逼死太子，征和四年下轮台诏息兵。",fan:"「明犯强汉者，虽远必诛」时代的总设计师，晚年给自己写了份检讨（轮台诏）——皇帝公开认错，他是第一个。"}},
+{id:"zhangqian",name:"张骞",years:["?","-114"],dynasty:"xihan",home:"汉中城固",
+ s:{student:"丝绸之路的开辟者，两次出使西域，封博望侯。",scholar:"建元三年应募使月氏，元朔三年归，元狩四年再使乌孙。《史记》《汉书》有传。",fan:"被扣十年都没丢的那根汉节，就是古代版的护照+信仰。"}},
+{id:"caocao",name:"曹操",years:[155,220],dynasty:"donghan",home:"沛国谯县（今安徽亳州）",
+ s:{student:"政治家、军事家、诗人。挟天子以令诸侯，统一北方，奠定曹魏基础；生前未称帝。",scholar:"曹操字孟德，举孝廉出身。行屯田、求贤令「唯才是举」，诗文开建安风骨。建安十三年进位丞相，二十一年封魏王。身后被《演义》塑造为白脸奸臣，郭沫若1959年发起「为曹操翻案」。",fan:"真实的曹操比小说里复杂得多：他可以一边写「白骨露于野，千里无鸡鸣」哭百姓，一边屠徐州杀红了眼。"}},
+{id:"zhugele",name:"诸葛亮",years:[181,234],dynasty:"sanguo",home:"徐州琅琊（今山东沂南），隐居南阳",
+ s:{student:"蜀汉丞相，刘备三顾茅庐请出山，辅佐刘备刘禅，鞠躬尽瘁死而后已。",scholar:"诸葛亮字孔明，《三国志》本传仅900余字，裴注补充；《出师表》《诫子书》为真作。需辨析：草船借箭、空城计、借东风均非信史。陈寿评「应变将略，非其所长」，与后世「智绝」形象有距离。",fan:"真实的诸葛亮不是呼风唤雨的妖道，而是个做事一丝不苟、连打二十军棍都要亲自审批的宰相——也是被自己累死的。"}},
+{id:"tangtaizong",name:"唐太宗 李世民",years:[598,649],dynasty:"tang",home:"太原→长安",
+ s:{student:"唐朝实际缔造者之一，贞观之治开创者，被各族尊为「天可汗」，古代明君的标杆。",scholar:"李渊次子，18岁劝父起兵，武德间平定薛举、王世充、窦建德等。即位后虚怀纳谏（魏徵）、轻徭薄赋、完善三省六部与科举。贞观四年灭东突厥。但玄武门之变与索观实录是其史评污点。",fan:"他可能是唯一一个被大臣（魏征）当面怼了两百多次，还一边生气一边给人升官的皇帝。"}},
+{id:"zhaokuangyin",name:"宋太祖 赵匡胤",years:[927,976],dynasty:"beisong",home:"涿郡，生于洛阳夹马营",
+ s:{student:"宋朝开国皇帝，行伍出身，陈桥兵变黄袍加身，杯酒释兵权结束军阀混战。",scholar:"后周殿前都点检，建隆元年受禅。其「祖宗之法」：崇文抑武、不杀士大夫及言事人、募兵养兵。烛影斧声之死与兄终弟及（赵光义继位）是千古疑案。",fan:"他可能是历史上武功最高的皇帝（太祖长拳、盘龙棍据传都是他的），却建立了最「文弱」的朝代。"}},
+{id:"yuefei",name:"岳飞",years:[1103,1142],dynasty:"nansong",home:"相州汤阴（今河南汤阴）",
+ s:{student:"南宋抗金名将，率岳家军北伐连捷，被十二道金牌召回，以莫须有罪名遇害，年39岁。",scholar:"岳飞字鹏举，出身农家，自建炎间从军，郾城、颍昌大捷破金兀术铁浮屠。绍兴十一年十二月二十九日赐死大理寺狱。孝宗朝平反，谥武穆、追封鄂王。",fan:"岳母刺字「尽忠报国」（清以前史料是「尽忠」，「精忠」是后世演绎），他背上的字和他本人一样，被后人一遍遍描深。"}},
+{id:"genghis",name:"成吉思汗 铁木真",years:[1162,1227],dynasty:"nansong",home:"蒙古斡难河流域",
+ s:{student:"大蒙古国创建者，统一蒙古、横扫欧亚，被称为「一代天骄」。",scholar:"铁木真九岁丧父，部族离散，成年后重组部落，1206年称成吉思汗。《蒙古秘史》、《史集》为基本史料。六征西夏、三攻金、西征灭花剌子模。",fan:"他建立的邮驿系统（站赤），让一个金条可以从北京一路平安带到黑海——在13世纪这就是魔法。"}},
+{id:"hubilie",name:"元世祖 忽必烈",years:[1215,1294],dynasty:"yuan",home:"漠北→大都",
+ s:{student:"元朝建立者，成吉思汗之孙，灭南宋统一全国，建立行省制度，重用汉法又保持蒙古传统。",scholar:"忽必烈为拖雷子，1260年称汗，1271建元，1279崖山灭宋。其统治混用汉法与色目理财（阿合马、桑哥），曾两征日本遇台风（神风）。",fan:"他的大军被台风救了日本两次，从此日语里多了个词叫「神风」——天气改变历史的经典案例。"}},
+{id:"zhenghe",name:"郑和",years:[1371,1433],dynasty:"ming",home:"云南昆阳（今晋宁）",
+ s:{student:"明朝航海家、宦官，七下西洋的正使，是世界航海史的标志性人物。",scholar:"郑和本姓马，云南回回人，明初入宫为宦官，从燕王起兵有功赐姓郑。1405-1433七奉使，第七次归途中卒于古里（印度卡利卡特）。",fan:"他祖父和父亲都去过麦加朝圣，所以他从小就知道：海的那边，有一个很大的世界。"}},
+{id:"wangyangming",name:"王阳明 守仁",years:[1472,1529],dynasty:"ming",home:"浙江余姚",
+ s:{student:"明代大思想家、军事家，心学集大成者，立德立功立言三不朽，提出知行合一、致良知。",scholar:"王守仁字伯安，号阳明，弘治十二年进士。正德元年忤刘瑾廷杖谪龙场，后平南赣、定宸濠之乱。其学经弟子传入日本，对大盐平八郎及明治人物影响深远。",fan:"他年轻时「格竹子」格了七天七夜把自己格病了——二十年后在贵州山洞里才想明白：竹子哪有自己心里的道理重要。"}}
+];
+
+/* ================= 地点 ================= */
+const places=[
+{id:"changan",name:"长安",ancient:"镐京 / 大兴 / 长安",modern:"陕西西安",lon:108.9,lat:34.3,
+ s:{student:"十三朝古都，西周、秦、西汉、隋、唐的都城，盛唐时是世界最大城市，人口百万。",scholar:"汉高祖五年都关中，隋文帝建大兴城，唐承之扩为长安城，面积84平方公里，朱雀大街中轴对称，日本平城京、平安京仿其形制。唐末朱温毁城，政治中心此后东移。",fan:"盛唐的西市有胡姬、波斯商人、印度魔术师——当时的长安就是世界的十字路口。"}},
+{id:"luoyang",name:"洛阳",ancient:"洛邑 / 神都 / 东京",modern:"河南洛阳",lon:112.5,lat:34.6,
+ s:{student:"九朝古都，东周、东汉、西晋都城，隋炀帝营建东都，武则天改称神都。",scholar:"武王克商后「宅兹中国」（何尊铭文，「中国」一词最早出处）指营建成周洛邑。东汉太学、北魏石窟（龙门）均在此。",fan:"「中国」这个词第一次出现，就是指着洛阳这片地方说的（西周何尊）。"}},
+{id:"nanjing",name:"南京",ancient:"建业 / 建康 / 集庆 / 应天",modern:"江苏南京",lon:118.8,lat:32.1,
+ s:{student:"六朝古都，东吴、东晋、宋齐梁陈都城，明初、太平天国、民国也定都于此。",scholar:"孙权212年筑石头城建业，东晋南渡后建康为南朝文化中心，王谢乌衣巷在其秦淮侧。朱元璋1368都应天府，1421年永乐迁北京。",fan:"一条秦淮河，半部南朝史和全本《桃花扇》。"}},
+{id:"beijing",name:"北京",ancient:"蓟 / 幽州 / 范阳 / 中都 / 大都 / 京师",modern:"北京",lon:116.4,lat:39.9,
+ s:{student:"辽南京、金中都、元大都、明清北京，至今中国首都，建都史逾八百年。",scholar:"先秦为燕国都蓟，唐为范阳节度使治所（安史策源地），金海陵王1153迁都中都，忽必烈1267建大都，永乐1421迁都。今北京城轴线为元明清三代奠定。",fan:"北京南北那条中轴线，2024年入选了世界遗产——700多岁的城市规划图纸，至今还在使用。"}},
+{id:"dunhuang",name:"敦煌",ancient:"沙州 / 敦煌郡",modern:"甘肃敦煌",lon:94.7,lat:40.1,
+ s:{student:"丝路重镇，汉武帝设敦煌郡，莫高窟开凿千年，藏经洞出土五万件文书轰动世界。",scholar:"元鼎六年（前111）分酒泉置敦煌郡，为河西四郡最西端。366年乐僔开窟，历北凉至元。1900年王圆箓发现藏经洞，后遭斯坦因、伯希和等掠取，文书分藏十国，催生「敦煌学」。",fan:"一个小和尚（乐僔）看见三危山的夕阳像万佛金光，随手凿了第一个洞——没想到这个洞窟群后来成了「墙壁上的博物馆」。"}}
+];
+
+/* ================= 可挂载书库 =================
+   每本书是一个"待接入数据源"：经 Agent 流水线提炼后生成挂载提案。
+   extracts 三种形态：
+   - person/event：新建实体（newId 为动态实体 id）
+   - link：对齐到主干已有实体（targetId），附该书视角 */
+const pipelineSteps=["文档解析\nPDF/EPUB/OCR 切块","Agent 抽取\n实体 · 关系 · 观点","时空归一化\n年号→公元 · 地名→坐标","实体对齐\n与主干消歧 ER","置信度评估\n生成挂载提案"];
+const books=[
+{id:"wanli15",title:"万历十五年",author:"黄仁宇",year:1981,lvl:2,color:"#1d4ed8",dyn:"ming",
+ span:[1525,1602],tags:["明代","政治制度","大历史观"],
+ desc:"以1587年这「平淡一年」切入，剖析明代官僚体制的结构性困局，是海外中国史研究最有影响力的作品之一。",
+ extracts:[
+  {kind:"person",newId:"bk_wanli15_hairui",name:"海瑞",years:"1514—1587",conf:.92,
+   summary:"明代著名清官，1587年卒于南京右佥都御史任上。书中称其为「古怪的模范官僚」：以个人道德对抗整个官僚机器。"},
+  {kind:"person",newId:"bk_wanli15_qjg",name:"戚继光",years:"1528—1588",conf:.93,
+   summary:"抗倭名将、军事家。书中指出他在重文轻武体制下，只能靠私人关系维持军队，无法建立现代化国防制度。"},
+  {kind:"person",newId:"bk_wanli15_zjz",name:"张居正",years:"1525—1582",conf:.9,
+   summary:"万历朝首辅，十年改革（考成法、一条鞭法）人亡政息，死后被抄家。"},
+  {kind:"person",newId:"bk_wanli15_lizhi",name:"李贽",years:"1527—1602",conf:.86,
+   summary:"「异端」思想家，主张童心说，1602年自刎狱中——个人精神自由与礼教体制的极端冲突。"},
+  {kind:"event",newId:"bk_wanli15_ev1",name:"1587：大历史观下的停滞之年",year:1587,lon:116.4,lat:39.9,place:"北京",conf:.78,
+   summary:"黄仁宇核心论点：明亡之兆藏在1587年——缺少「数目字管理」，以道德代替技术治理，帝国陷入僵局。此为解释框架而非学界定论。"}
+ ]},
+{id:"daqin",title:"大秦帝国",author:"孙皓晖",year:2008,lvl:3,color:"#b45309",dyn:"qin",
+ span:[-361,-206],tags:["历史小说","先秦","秦变法"],
+ desc:"六部十一卷、500万字的历史小说，讲述秦国从商鞅变法到统一天下再到速亡的全过程。文学价值高，但不能当信史读。",
+ extracts:[
+  {kind:"person",newId:"bk_daqin_shangyang",name:"商鞅",years:"约前390—前338",conf:.85,
+   summary:"在秦孝公支持下于前356年、前350年两度变法，奠定秦统一根基；孝公死后被车裂。（史有其人，本条人物卡由小说挂载，学术使用请核对《史记·商君列传》）"},
+  {kind:"link",targetId:"qin_unify",conf:.35,
+   summary:"【文学视角】小说以恢弘笔法重述秦统一进程，人物对话与情节多为虚构创作，可作兴趣入门，不可作史实引用。"},
+  {kind:"link",targetId:"daze",conf:.3,
+   summary:"【文学视角】对秦末民变的小说化演绎，与《史记·陈涉世家》的记载有较大出入。"}
+ ]},
+{id:"silkroad",title:"丝绸之路：一部全新的世界史",author:"彼得·弗兰科潘",year:2015,lvl:2,color:"#7e22ce",dyn:"xihan",
+ span:[-138,1450],tags:["丝路","全球史","中亚"],
+ desc:"牛津拜占庭史学者重写的世界史：文明的中心不在地中海或西欧，而在欧亚大陆的「丝绸之路」心脏地带。",
+ extracts:[
+  {kind:"link",targetId:"zhangqian",conf:.72,
+   summary:"【研究观点】该书重估丝路性质：它并非由东向西的单向「开辟」，而是中亚诸文明长期共构的贸易与信仰网络；张骞通西域是关键节点而非起点。"},
+  {kind:"link",targetId:"zhenghe",conf:.7,
+   summary:"【研究观点】将郑和下西洋置于印度洋世界贸易体系的脉络中重新评价，而非孤立的朝贡航行。"}
+ ]}
+];
+
+/* ================= 关系边（KG） ================= */
+const edges=[
+["qsh","qin_unify","建立"],["lisi","qin_unify","辅佐"],["qsh","fenshu","主导"],["lisi","fenshu","献策"],
+["chenshe","daze","发动"],["xiangyu","gaixia","败于"],["liubang","gaixia","战胜"],["liubang","xihan","建立"],
+["zhangqian","zhangqian_ev","出使"],["hanwudi","zhangqian_ev","派遣"],["zhangqian","xihan","事于"],
+["hanwudi","mobei","发动"],["huoqubing","mobei","统军"],["weiqing","mobei","统军"],
+["caocao","chibi","统领"],["zhugele","chibi","联盟谋划"],["zhouyu","chibi","统帅"],["zhugele","sanguo","仕于蜀汉"],
+["fujian","feishui","统率"],["xiean","feishui","运筹"],
+["yangdi","dayunhe","下令"],["tangtaizong","xuanwumen","发动"],["tangtaizong","tang","即位于"],
+["anlushan","anlushan","发动"],["guoziyi","anlushan","平定"],["tangxuanzong","anlushan","在位时"],
+["zhaokuangyin","chenqiao","被拥立"],["zhaokuangyin","beisong","建立"],
+["songhuizong","jingkang","被掳"],["qinhui","jingkang","被掳后南归"],["yuefei","nansong","抗金于"],["qinhui","yuefei","构陷"],
+["genghis","mon_unify","受尊号"],["hubilie","dadu","营建"],["hubilie","yuan","建立"],
+["zhenghe","zhenghe_ev","率领"],["mingchengzu","zhenghe_ev","派遣"],["mingchengzu","ming","即位于"],
+["wangyangming","longchang","悟道"],["linzexu","yaopian","禁烟"],["lihongzhang","jiawu","主和/北洋"],
+["qsh","changan","都于"],["hanwudi","changan","都于"],["tangtaizong","changan","都于"],["tangxuanzong","changan","都于"],
+["caocao","luoyang","都于"],["hubilie","beijing","都于"],["zhenghe","nanjing","起锚于"],
+["hanwudi","dunhuang","设郡"]
+];
+/* 事件 id 与边的别名 */
+const alias={"zhangqian_ev":"zhangqian","zhenghe_ev":"zhenghe"};
+
+/* ================= 状态 ================= */
+let year=-221, audience="student", selected={type:"event",id:"qin_unify"}, tab="detail";
+const layerState={terr:true,city:true,river:true,event:true};
+const mountedBooks=new Set();   // 已写入本体的书 id
+let sourceFilter="all";         // 事件点/大事条的来源过滤
+function findBook(id){return books.find(b=>b.id===id)}
+
+/* ================= 工具 ================= */
+const $=s=>document.querySelector(s);
+function ganzhi(y){const astro=y<0?y+1:y;let n=((astro-4)%60+60)%60;const g="甲乙丙丁戊己庚辛壬癸",z="子丑寅卯辰巳午未申酉戌亥";return g[n%10]+z[n%12]}
+function fmtYear(y){return y<0?`公元前${-y} 年`:`公元 ${y} 年`}
+function activeDynasty(y){
+ for(const d of dynasties) if(y>=d.span[0]&&y<=d.span[1]) return d;
+ return dynasties[dynasties.length-1];
+}
+function getEntity(type,id){return ({event:events,person:people,place:places}[type]||[]).find(x=>x.id===id)}
+
+/* 某本书覆盖的主干/新增事件集合（用于来源过滤） */
+function bookCover(bid){
+ const bk=findBook(bid),s=new Set();
+ (bk.extracts||[]).forEach(x=>{
+  if(x.kind==="link")s.add(x.targetId);
+  if(x.kind==="event")s.add(x.newId);
+ });
+ return s;
+}
+
+/* ================= 渲染地图 ================= */
+function renderMap(){
+ const d=activeDynasty(year);
+ let svg="";
+ /* 疆域 */
+ if(layerState.terr){
+  let g=`<g class="terr">`;
+  g+=`<polygon points="${pts(d.terr)}" fill="${d.color}" fill-opacity=".16" stroke="${d.color}" stroke-width="2" stroke-opacity=".85"/>`;
+  (d.coex||[]).forEach(c=>{g+=`<polygon points="${pts(c.poly)}" fill="${c.color}" fill-opacity=".18" stroke="${c.color}" stroke-width="1.4" stroke-opacity=".7" stroke-dasharray="5 3"/>`});
+  g+=`</g>`;svg+=g;
+ }
+ /* 中国轮廓 */
+ svg+=`<polygon points="${pts(outline)}" fill="none" stroke="#64748b" stroke-width="1.4"/>`;
+ /* 海南+台湾 */
+ svg+=`<ellipse cx="${X(109.8)}" cy="${Y(19.2)}" rx="${(1.6/64*700).toFixed(1)}" ry="${(1.1/36*394).toFixed(1)}" fill="none" stroke="#64748b" stroke-width="1"/>`;
+ svg+=`<ellipse cx="${X(121.1)}" cy="${Y(23.7)}" rx="${(0.8/64*700).toFixed(1)}" ry="${(1.8/36*394).toFixed(1)}" fill="none" stroke="#64748b" stroke-width="1"/>`;
+ /* 水系 */
+ if(layerState.river) rivers.forEach(r=>{svg+=`<polyline class="river" points="${pts(r.d)}"/>`});
+ /* 城市 */
+ if(layerState.city) cities.forEach(c=>{svg+=`<circle class="city-dot" cx="${X(c[1])}" cy="${Y(c[2])}" r="2"/><text class="city-lbl" x="${X(c[1])+4}" y="${Y(c[2])+3}">${c[0]}</text>`});
+ /* 都城 */
+ svg+=`<path class="cap-mark" d="M${X(d.cap[1])} ${Y(d.cap[2])-6} l6 12 h-12 z" transform="rotate(180 ${X(d.cap[1])} ${Y(d.cap[2])})"/>`;
+ svg+=`<text class="cap-lbl" x="${X(d.cap[1])+8}" y="${Y(d.cap[2])-4}">${d.cap[0]}（都）</text>`;
+ /* 事件点（可按挂载书来源过滤） */
+ if(layerState.event){
+  let evs=events.filter(e=>e.dyn===d.id);
+  if(sourceFilter!=="all"){const cov=bookCover(sourceFilter);evs=evs.filter(e=>cov.has(e.id))}
+  evs.forEach(e=>{
+   const cx=X(e.lon),cy=Y(e.lat);
+   svg+=`<g class="ev-dot" data-id="${e.id}"><circle class="halo" cx="${cx}" cy="${cy}" r="5"/><circle class="core" cx="${cx}" cy="${cy}" r="5"/><text class="ev-lbl" x="${cx+8}" y="${cy+3}">${e.name}</text></g>`;
+  });
+ }
+ /* 南海诸岛插图 */
+ const ix=556,iy=296,iw=128,ih=96;
+ svg+=`<rect x="${ix}" y="${iy}" width="${iw}" height="${ih}" fill="#fff" fill-opacity=".7" stroke="var(--border-strong)"/>`;
+ svg+=`<path class="nanhai" d="M${ix+20} ${iy+10} q10 30 30 40 q30 12 20 40"/>`;
+ [[40,20],[60,38],[35,55],[75,62],[55,78]].forEach(p=>{svg+=`<circle class="nh-dot" cx="${ix+p[0]}" cy="${iy+p[1]}" r="2"/>`});
+ svg+=`<text class="nh-lbl" x="${ix+6}" y="${iy+90}">南海诸岛（示意）</text>`;
+ $("#map").innerHTML=svg;
+ /* 绑定事件点 */
+ $("#map").querySelectorAll(".ev-dot").forEach(g=>{
+  g.addEventListener("click",()=>{const e=events.find(x=>x.id===g.dataset.id);selected={type:"event",id:e.id};tab="detail";renderTabs();renderPanel()});
+ });
+}
+
+/* ================= 时间轴 ================= */
+const Y0_=-2200,Y1_=1912;
+function yearToPct(y){return (y-Y0_)/(Y1_-Y0_)*100}
+function renderLanes(){
+ let h="";
+ dynasties.forEach(d=>{
+  const l=yearToPct(d.span[0]),r=yearToPct(d.span[1]),w=Math.max(r-l,.4);
+  h+=`<div class="lane" style="left:${l}%;width:${w}%;background:${d.color}" data-id="${d.id}" title="${d.name}">${w>3?d.name:""}</div>`;
+ });
+ $("#lanes").innerHTML=h;
+ $("#lanes").querySelectorAll(".lane").forEach(el=>el.addEventListener("click",()=>{
+  const d=dynasties.find(x=>x.id===el.dataset.id);setYear(Math.round((d.span[0]+d.span[1])/2));
+ }));
+ const ticks=[-2000,-1500,-1000,-500,0,500,1000,1500,1900];
+ $("#ticks").innerHTML=ticks.map(t=>`<div class="tl-tick" style="left:${yearToPct(t)}%"><span>${t<0?"前"+(-t):t}</span></div>`).join("");
+}
+function renderHandle(){
+ const p=yearToPct(year);
+ $("#handle").style.left=p+"%";
+ const d=activeDynasty(year);
+ $("#nowYear").textContent=fmtYear(year);
+ $("#nowMeta").textContent=`${ganzhi(year)}年 · ${d.name}`;
+ let emp="";
+ for(const e of d.emperors){if(year>=e.s&&year<=e.e){emp=e.n;if(e.era){const n=year-e.es+1;emp+=` · ${e.era}${n>0?cnNum(n)+"年":""}`}break}}
+ $("#nowEmperor").innerHTML=emp?`<span class="meta" style="margin-left:0">在位：${emp}</span>`:"";
+}
+function cnNum(n){
+ if(n>40)return n;
+ const d=["","一","二","三","四","五","六","七","八","九"];
+ if(n<10)return d[n];
+ if(n===10)return"十";
+ if(n<20)return"十"+d[n-10];
+ const t=Math.floor(n/10),o=n%10;
+ return d[t]+"十"+(o?d[o]:"");
+}
+function setYear(y){
+ year=Math.max(Y0_,Math.min(Y1_,Math.round(y)));
+ renderHandle();renderMap();renderStrip();
+ if(tab!=="arch") renderPanel();
+}
+
+/* ================= 拖动 ================= */
+function bindTrack(){
+ const tr=$("#track");let dragging=false;
+ function pos(e){const r=tr.getBoundingClientRect();const cx=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+  return Y0_+Math.max(0,Math.min(1,cx/r.width))*(Y1_-Y0_)}
+ tr.addEventListener("pointerdown",e=>{dragging=true;tr.setPointerCapture(e.pointerId);setYear(pos(e))});
+ tr.addEventListener("pointermove",e=>{if(dragging)setYear(pos(e))});
+ tr.addEventListener("pointerup",()=>dragging=false);
+ tr.addEventListener("pointercancel",()=>dragging=false);
+ window.addEventListener("wheel",e=>{if(e.target.closest(".track")){setYear(year+(e.deltaY<0?5:-5))}},{passive:true});
+}
+
+/* ================= 本朝事件条 ================= */
+function renderStrip(){
+ const d=activeDynasty(year);
+ $("#stripTag").textContent=`${d.name} · ${fmtYear(d.span[0])}—${fmtYear(d.span[1])}`;
+ /* 来源筛选 chips */
+ $("#srcFilters").innerHTML=`<span class="lb">来源视角：</span><span class="f ${sourceFilter==='all'?'on':''}" data-src="all">全部</span>`+
+  books.filter(b=>mountedBooks.has(b.id)).map(b=>`<span class="f ${sourceFilter===b.id?'on':''}" data-src="${b.id}">《${b.title}》</span>`).join("");
+ let list=events.filter(e=>e.dyn===d.id);
+ if(sourceFilter!=="all"){const cov=bookCover(sourceFilter);list=list.filter(e=>cov.has(e.id))}
+ $("#evStrip").innerHTML=list.length?list.map(e=>
+  `<div class="ev-chip" data-id="${e.id}"><div class="y">${fmtYear(e.year)} · ${ganzhi(e.year)} ${e._fromBook?'<span class="mbadge">挂载</span>':''}</div><div class="n">${e.name}</div><div class="p">${e.place}</div></div>`).join("")
+  :`<div style="color:var(--text-3);font-size:12.5px;padding:8px">${sourceFilter==="all"?"本时期事件数据建设中（原型示例覆盖夏—清主要朝代）":"本书在本时期暂无挂载点，可拖动时间轴到其覆盖区间查看"}</div>`;
+ $("#evStrip").querySelectorAll(".ev-chip").forEach(el=>el.addEventListener("click",()=>{
+  selected={type:"event",id:el.dataset.id};tab="detail";renderTabs();renderPanel();
+ }));
+}
+
+/* ================= 面板 ================= */
+function renderTabs(){$("#tabs").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab))}
+function renderPanel(){
+ const body=$("#panelBody");
+ if(tab==="arch"){body.innerHTML=archHTML();return}
+ if(tab==="books"){body.innerHTML=booksHTML();return}
+ const ent=getEntity(selected.type,selected.id);
+ if(!ent){body.innerHTML=`<div class="empty"><div class="big">🏯</div>点击地图事件点、朝代大事卡片，或搜索任意人物/事件/地点查看详情</div>`;return}
+ if(tab==="detail") body.innerHTML=detailHTML(ent);
+ if(tab==="source") body.innerHTML=sourceHTML(ent);
+ if(tab==="kg") body.innerHTML=kgHTML(ent);
+}
+
+function typeLabel(t){return {event:"事件",person:"人物",place:"地点"}[t]}
+function detailHTML(e){
+ const isE=selected.type==="event",isP=selected.type==="person";
+ let h=`<div class="detail"><h2>${e.name}</h2><div class="sub">`;
+ h+=`<span class="badge ${selected.type==='event'?'b-ev':selected.type==='person'?'b-bc':'b-pl'}">${typeLabel(selected.type)}</span>`;
+ if(isE) h+=`${fmtYear(e.year)} · ${ganzhi(e.year)}年 · ${e.place}`;
+ if(isP) h+=`${e.years[0]}—${e.years[1]}`;
+ h+=`</div>`;
+ if(isP&&e.home)h+=`<dl class="kv"><dt>籍贯/地</dt><dd>${e.home}</dd></dl>`;
+ if(isP&&e.dynasty)h+=`<dl class="kv"><dt>所属</dt><dd>${dynasties.find(d=>d.id===e.dynasty)?.name||""}</dd></dl>`;
+ h+=`<div class="narr"><span class="who">${{student:"学生模式 · 通俗讲述",scholar:"学者模式 · 学术叙述",fan:"爱好者模式 · 故事化"}[audience]}</span>${e.s[audience]}</div>`;
+ if(isE){
+  if(e.actors&&e.actors.length){
+   const ps=e.actors.map(id=>people.find(p=>p.id===id)).filter(Boolean);
+   if(ps.length){h+=`<div class="sec-t">相关人物</div><div class="chips">${ps.map(p=>`<span class="c" data-p="${p.id}">${p.name.split(" ")[0]}</span>`).join("")}</div>`}
+  }
+  if(e.significance)h+=`<div class="signif"><b>历史意义：</b>${e.significance}</div>`;
+  if(e.dispute)h+=`<div class="dispute"><b>⚖ 学术分歧：</b>${e.dispute}</div>`;
+ }
+ if(selected.type==="place"){
+  h+=`<dl class="kv"><dt>古称</dt><dd>${e.ancient}</dd><dt>今属</dt><dd>${e.modern}</dd></dl>`;
+ }
+ h+=`</div>`;
+ setTimeout(()=>{
+  document.querySelectorAll(".chips .c[data-p]").forEach(c=>c.addEventListener("click",()=>{
+   selected={type:"person",id:c.dataset.p};renderPanel();
+  }));
+ },0);
+ return h;
+}
+function sourceHTML(e){
+ let ids=[];
+ if(selected.type==="event") ids=[e.id];
+ if(selected.type==="person"){
+  /* 人物参与的事件 */
+  ids=events.filter(ev=>(ev.actors||[]).includes(e.id)).map(ev=>ev.id);
+ }
+ if(selected.type==="place"){
+  ids=events.filter(ev=>ev.place&&ev.place.includes(e.modern.slice(0,2))).map(ev=>ev.id);
+ }
+ const list=[
+  ...(e._bookSources||[]).map(s=>({...s,eid:null,mounted:true})),
+  ...ids.flatMap(id=>(sources[id]||[]).map(s=>({...s,eid:id})))
+ ];
+ if(!list.length)return `<div class="empty"><div class="big">📜</div>该实体暂无配套数字化史料。<br>正式版将对接 ctext.org 全文库与古籍向量索引（RAG）。</div>`;
+ const evtName=id=>events.find(x=>x.id===id)?.name||"";
+ return `<div class="sec-t" style="margin-top:0">RAG 返回：共 ${list.length} 条史料证据
+ <span style="font-weight:400;color:var(--text-3)">（按相关度排序 · 每条均标注出处与置信度 · 含挂载书源）</span></div>`+
+ list.map(s=>{
+  const showText=audience==="scholar";
+  return `<div class="src">
+   <div class="src-top"><span class="lvl lvl-${s.lvl}">${["","一级·原始史料","二级·现代史学","三级·大众/文学"][s.lvl]}</span><span class="src-work">${s.work}</span>${s.mounted?'<span class="mbadge">挂载书源</span>':''}</div>
+   ${s.eid?`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">关联事件：${evtName(s.eid)}</div>`:""}
+   <div class="src-text">${s.text}</div>
+   ${!showText?`<div class="src-trans">【译文】${s.trans||""}</div>`:""}
+   ${showText&&s.trans?`<div class="src-trans" style="border-top:1px dashed var(--border);padding-top:5px">【参考译文】${s.trans}</div>`:""}
+   <div class="conf"><span>置信度 ${(s.conf*100).toFixed(0)}%</span><span class="conf-bar"><i style="width:${s.conf*100}%;${s.conf<.5?'background:var(--gold)':''}"></i></span></div>
+  </div>`;
+ }).join("");
+}
+function kgHTML(e){
+ /* 收集一阶边 */
+ const id=e.id;
+ const rels=[];
+ edges.forEach(ed=>{
+  let a=ed[0],b=ed[1];
+  a=alias[a]||a;b=alias[b]||b;
+  if(a===id) rels.push({other:b,label:ed[2],dir:1});
+  else if(b===id) rels.push({other:a,label:ed[2],dir:-1});
+ });
+ const cx=300,cy=180,R=128;
+ const shown=rels.slice(0,8);
+ let s=`<div class="kg-wrap"><svg viewBox="0 0 600 380">`;
+ const nodes=shown.map((r,i)=>{
+  const ang=-Math.PI/2+i*(Math.PI*2/Math.max(shown.length,1));
+  return {x:cx+Math.cos(ang)*R,y:cy+Math.sin(ang)*R,r};
+ });
+ nodes.forEach(n=>{
+  s+=`<line class="kg-edge" x1="${cx}" y1="${cy}" x2="${n.x}" y2="${n.y}"/>`;
+  s+=`<text class="kg-edge-lbl" x="${(cx+n.x)/2}" y="${(cy+n.y)/2-3}" text-anchor="middle">${n.r.label}</text>`;
+ });
+ s+=`<g class="kg-node" ><circle cx="${cx}" cy="${cy}" r="30" fill="var(--brand)"/><text x="${cx}" y="${cy}">${e.name.slice(0,4)}</text></g>`;
+ nodes.forEach(n=>{
+  const o=findAny(n.r.other);
+  const col=o?{event:"var(--brand)",person:"var(--gold)",place:"var(--blue)"}[o.type]:"var(--text-3)";
+  s+=`<g class="kg-node" data-type="${o?.type||''}" data-id="${n.r.other}"><circle cx="${n.x}" cy="${n.y}" r="24" fill="${col}"/><text x="${n.x}" y="${n.y}">${o?o.name.slice(0,4).split(" ")[0]:"…"}</text></g>`;
+ });
+ s+=`</svg><div class="kg-legend">点击任意周边节点可跳转。颜色：<i style="background:var(--brand)"></i>事件<i style="background:var(--gold)"></i>人物<i style="background:var(--blue)"></i>地点</div>
+ <div style="font-size:11.5px;color:var(--text-3);margin-top:8px">当前显示以「${e.name}」为中心的一阶关系；正式版由 Neo4j 图数据库实时返回，支持多跳路径查询（如人物→事件→制度→事件）。</div></div>`;
+ setTimeout(()=>{
+  document.querySelectorAll(".kg-node[data-id]").forEach(g=>g.addEventListener("click",()=>{
+   const o=findAny(g.dataset.id);if(o){selected={type:o.type,id:o.id};renderPanel()}
+  }));
+ },0);
+ return s;
+}
+function findAny(id){
+ if(events.find(x=>x.id===id))return {type:"event",...events.find(x=>x.id===id)};
+ if(people.find(x=>x.id===id))return {type:"person",...people.find(x=>x.id===id)};
+ if(places.find(x=>x.id===id))return {type:"place",...places.find(x=>x.id===id)};
+ return null;
+}
+/* ================= 挂载书库 UI 与动态本体写操作 ================= */
+function booksHTML(){
+ const n=books.filter(b=>mountedBooks.has(b.id)).length;
+ let h=`<div class="sec-t" style="margin-top:0">动态本体挂载 · 书库
+ <span style="font-weight:400;color:var(--text-3)">（${n}/${books.length} 已挂载到历史主线）</span></div>
+ <div style="font-size:12px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:12px;line-height:1.75">
+ 任何一本书——古籍点校本、学术专著、历史小说、科普读物——经
+ <b> 解析 → Agent 抽取 → 时空归一化 → 实体对齐 → 置信度评估 </b>
+ 后生成「挂载提案」；审核确认即写入本体，<b>时间轴、地图、关系图谱立即联动</b>，并可按来源过滤、打标签、全文搜索。</div>`;
+ books.forEach(b=>{h+=bookCard(b)});
+ return h;
+}
+function bookCard(b){
+ const isM=mountedBooks.has(b.id);
+ const lvlName=["","一级史料","二级·研究","三级·文学/科普"][b.lvl];
+ let h=`<div class="book ${isM?'mounted':''}">
+  <div class="book-top">
+   <div class="book-sp" style="background:${b.color}">${b.title.slice(0,1)}</div>
+   <div class="book-info">
+    <h4>${b.title} <span class="src-mtag mt${b.lvl}">${lvlName}</span>${isM?'<span class="mbadge">已挂载</span>':''}</h4>
+    <div class="au">${b.author} · ${b.year} · 覆盖 ${fmtYear(b.span[0])}—${fmtYear(b.span[1])}</div>
+    <div class="book-tags">${b.tags.map(t=>`<span class="t">#${t}</span>`).join("")}</div>
+    <div class="book-desc">${b.desc}</div>`;
+ if(!b._ui){
+  h+=`<div class="book-actions"><button class="btn" data-act="extract" data-bid="${b.id}">提炼并挂载</button></div>`;
+ } else if(!b._ui.ready){
+  const st=b._ui.step;
+  h+=`<div class="steps">`+pipelineSteps.map((s,i)=>{
+   const cls=i<st?"done":i===st?"on":"";
+   const [t1,t2]=s.split("\n");
+   return `<div class="step ${cls}"><span class="n">${i+1}. ${t1}</span>${t2}</div>`;
+  }).join("")+`</div>`;
+  const cur=pipelineSteps[Math.min(st,pipelineSteps.length-1)].split("\n")[0];
+  h+=`<div class="step-note">Agent 工作中：${cur} …（正式版此处展示抽取日志与中间产物）　<button class="btn gray" data-act="cancel" data-bid="${b.id}">取消</button></div>`;
+ } else if(!isM){
+  const acc=b._ui.accepted,nc=acc.filter(Boolean).length;
+  h+=b.extracts.map((x,i)=>{
+   const kindName={person:"人物",event:"事件",link:"挂载"}[x.kind];
+   const col={person:"var(--gold)",event:"var(--brand)",link:"var(--purple)"}[x.kind];
+   const low=x.conf<.5;
+   const meta=x.kind==="link"?`对齐到主干事件：${events.find(e=>e.id===x.targetId)?.name||""}`
+       :x.kind==="person"?`新建实体（人物）· ${x.years}`
+       :`新建实体（事件）· ${fmtYear(x.year)} · ${x.place}`;
+   return `<div class="prop ${low?'low':''}">
+    <input type="checkbox" data-act="toggle" data-bid="${b.id}" data-i="${i}" ${acc[i]?'checked':''}>
+    <span class="kind-ic" style="background:${col}">${kindName.slice(0,1)}</span>
+    <div style="flex:1;min-width:0"><div class="pname">${x.name}</div><div class="pdesc">${x.summary}</div>
+    <div class="pmeta">${meta}${low?' · 低置信度，建议人工核对上游史料':''}</div></div>
+    <span class="pconf">${(x.conf*100).toFixed(0)}%</span></div>`;
+  }).join("");
+  h+=`<div class="book-actions" style="margin-top:8px"><button class="btn" data-act="mount" data-bid="${b.id}" id="mountBtn">确认挂载（${nc} 项）</button><button class="btn gray" data-act="discard" data-bid="${b.id}">放弃提案</button></div>`;
+ } else {
+  const np=b.extracts.filter(x=>x.kind==="person").length;
+  const ne=b.extracts.filter(x=>x.kind==="event").length;
+  const nl=b.extracts.filter(x=>x.kind==="link").length;
+  h+=`<div class="mount-stats">✓ 已写入本体：${np} 个人物 · ${ne} 个事件 · ${nl} 个观点挂载点；即刻可搜索 / 过滤 / 溯源</div>
+  <div class="book-actions"><button class="btn ghost" data-act="view" data-bid="${b.id}">前往该书年代查看</button>
+  <button class="btn gray" data-act="unmount" data-bid="${b.id}">卸载</button></div>`;
+ }
+ h+=`</div></div>`;
+ return h;
+}
+
+/* 启动提炼流水线（模拟 Agent 五步处理，正式版为异步真实任务流） */
+function startExtract(bid){
+ const b=findBook(bid);
+ if(b._timer)clearInterval(b._timer);
+ b._ui={step:0};
+ renderPanel();
+ b._timer=setInterval(()=>{
+  b._ui.step++;
+  if(b._ui.step>=pipelineSteps.length){
+   clearInterval(b._timer);b._timer=null;
+   b._ui.ready=true;
+   b._ui.accepted=b.extracts.map(x=>x.conf>=.4);
+  }
+  renderPanel();
+ },520);
+}
+function makeSrc(b,x){return {lvl:b.lvl,work:"《"+b.title+"》",text:x.summary,trans:x.summary,conf:x.conf,_bid:b.id}}
+
+/* 确认挂载：将提案写入本体（Action Type 的写操作） */
+function doMount(bid){
+ const b=findBook(bid),acc=b._ui.accepted;
+ b.extracts.forEach((x,i)=>{
+  if(!acc[i])return;
+  const src=makeSrc(b,x);
+  if(x.kind==="person"){
+   people.push({id:x.newId,name:x.name,years:x.years.split("—"),dynasty:b.dyn,
+    home:"（挂载书源实体）",
+    s:{student:x.summary,
+       scholar:x.summary+"　【本体注记】本实体由《"+b.title+"》挂载，学术使用请核对原书及更上游史料。",
+       fan:x.summary},
+    _fromBook:bid,_bookSources:[src]});
+  } else if(x.kind==="event"){
+   events.push({id:x.newId,name:x.name,year:x.year,dyn:b.dyn,lon:x.lon,lat:x.lat,place:x.place,
+    actors:[],
+    s:{student:x.summary,scholar:x.summary,fan:x.summary},
+    significance:null,
+    dispute:"挂载观点：代表《"+b.title+"》作者的解释框架，非学界定论。",
+    _fromBook:bid,_bookSources:[src]});
+  } else if(x.kind==="link"){
+   const t=getEntity("event",x.targetId);
+   if(t){t._bookSources=t._bookSources||[];t._bookSources.push(src)}
+  }
+ });
+ mountedBooks.add(bid);
+ refreshAll();
+}
+
+/* 卸载：从本体移除该书写入的全部实体与挂载边 */
+function doUnmount(bid){
+ const b=findBook(bid);
+ clearInterval(b._timer);b._timer=null;b._ui=null;
+ for(let i=people.length-1;i>=0;i--)if(people[i]._fromBook===bid)people.splice(i,1);
+ for(let i=events.length-1;i>=0;i--)if(events[i]._fromBook===bid)events.splice(i,1);
+ [events,people,places].forEach(arr=>arr.forEach(e=>{
+  if(e._bookSources)e._bookSources=e._bookSources.filter(s=>s._bid!==bid);
+ }));
+ mountedBooks.delete(bid);
+ if(sourceFilter===bid)sourceFilter="all";
+ refreshAll();
+}
+function renderMountRow(){
+ const list=books.filter(b=>mountedBooks.has(b.id));
+ if(!list.length){$("#mountRow").innerHTML=`<div class="mt-empty">挂载书源轨道：暂无（在右侧「挂载书库」提炼一本书即可见）</div>`;return}
+ $("#mountRow").innerHTML=list.map(b=>{
+  const l=yearToPct(b.span[0]),w=Math.max(yearToPct(b.span[1])-l,1.5);
+  return `<div class="mt-bar" style="left:${l}%;width:${w}%;background:${b.color}" data-mt="${b.id}" title="《${b.title}》覆盖区间，点击跳转">
+   ${w>9?`<span class="mt-lbl">《${b.title}》</span>`:""}</div>`;
+ }).join("");
+}
+function refreshAll(){
+ renderMountRow();renderMap();renderStrip();
+ if(tab==="books"||tab==="source"||tab==="kg")renderPanel();
+}
+/* 面板内按钮事件委托（只绑定一次） */
+function bindPanelActions(){
+ const body=$("#panelBody");
+ body.addEventListener("click",ev=>{
+  const el=ev.target.closest("[data-act]");if(!el)return;
+  const act=el.dataset.act,bid=el.dataset.bid,b=findBook(bid);
+  if(act==="extract")startExtract(bid);
+  if(act==="cancel"||act==="discard"){clearInterval(b._timer);b._timer=null;b._ui=null;renderPanel()}
+  if(act==="mount")doMount(bid);
+  if(act==="unmount")doUnmount(bid);
+  if(act==="view"){sourceFilter=bid;setYear(Math.round((b.span[0]+b.span[1])/2))}
+ });
+ body.addEventListener("change",ev=>{
+  const el=ev.target.closest('input[data-act="toggle"]');if(!el)return;
+  const b=findBook(el.dataset.bid);b._ui.accepted[el.dataset.i]=el.checked;
+  const n=b._ui.accepted.filter(Boolean).length;
+  const btn=body.querySelector("#mountBtn");if(btn)btn.textContent=`确认挂载（${n} 项）`;
+ });
+}
+/* 时间轴书源轨道 + 大事条来源筛选的全局委托 */
+function bindGlobalFilters(){
+ document.addEventListener("click",ev=>{
+  const mt=ev.target.closest("#mountRow .mt-bar");
+  if(mt){const b=findBook(mt.dataset.mt);sourceFilter=b.id;setYear(Math.round((b.span[0]+b.span[1])/2));return}
+  const f=ev.target.closest("#srcFilters .f");
+  if(f){sourceFilter=f.dataset.src;renderMap();renderStrip()}
+ });
+}
+
+function archHTML(){
+ return `
+ <div class="arch-layer"><h4>① 本体论 Ontology <span style="background:var(--purple)">Schema 层</span></h4>
+ <p>定义实体类型与允许的关系：</p>
+ <div class="schema-box">
+  <div class="e">政权 Era<br><small>起止/疆域/都城</small></div>
+  <div class="e">事件 Event<br><small>时/地/人/因果</small></div>
+  <div class="e">人物 Person<br><small>生卒/职官/师承</small></div>
+  <div class="e">地点 Place<br><small>古今名/沿革</small></div>
+  <div class="e">制度 Institution<br><small>始创/沿革</small></div>
+  <div class="e">文化 Culture<br><small>思想/艺术/科技</small></div>
+ </div>
+ <p style="margin-top:6px">关系：参与 / 发生于 / 触发 / 任职 / 师承 / 设治 / 创制</p></div>
+ <div class="arch-arrow">▼ 按 Schema 落数据</div>
+ <div class="arch-layer"><h4>② 知识图谱 KG <span style="background:var(--gold)">结构化事实层</span></h4>
+ <p>人-事-地-制构成 Labeled Property Graph。<b>生产：Neo4j</b>（Cypher 做多跳关系推理）；本原型用 JSON + edges 数组模拟，右侧「关系图谱」页即其视图。另可用 RDF/OWL 对接国际数字人文（LOD）。</p></div>
+ <div class="arch-arrow">▼ 回答时并行检索</div>
+ <div class="arch-layer"><h4>③ RAG 史料检索 <span style="background:var(--blue)">原文证据层</span></h4>
+ <p>《史记》《汉书》《资治通鉴》等全文切块向量化（pgvector / Milvus），配合 BM25 关键词混合检索。KG 给事实骨架，RAG 给原文出处；考据 Agent 交叉校验置信度，审阅 Agent 拦截无出处陈述。</p></div>
+ <div class="arch-arrow">▼ 任何新书均可回流写入</div>
+ <div class="arch-layer"><h4>④ 动态本体挂载（对标 Palantir Foundry）<span style="background:var(--purple)">写操作闭环</span></h4>
+ <p>Foundry 的关键不是图本身，而是 <b>Ontology as operational layer</b>：Object Types / Link Types / Action Types。本系统映射——新书接入：Docling/Unstructured 解析 → Agent 抽取 → 时空归一化 → 实体对齐(ER) → 以「挂载提案（Action）」经人工审核写入本体 → 时间轴/地图/图谱实时联动；每个事实保留<b>数据血缘</b>（事实→书→章节→原文）。开源栈：Neo4j + pgvector + LangGraph + OpenMetadata。</p></div>
+ <div class="arch-layer" style="background:#f0fdf4"><h4 style="color:var(--green)">结论</h4>
+ <p><b>三者都要：</b>本体是地图（schema），KG 是骨架（事实与关系），RAG 是血肉（史料原文）。MVP 阶段本体可轻量、KG 可先用关系库/JSON，但<b>史料溯源（RAG + 引用）从第一天就必须做</b>，这是历史类产品与通用聊天机器人的根本区别。</p></div>`;
+}
+
+/* ================= 搜索 ================= */
+function bindSearch(){
+ const inp=$("#searchInput"),sg=$("#suggest");
+ function q(term){
+  const r=[];
+  people.forEach(p=>{if(p.name.includes(term))r.push({type:"person",id:p.id,name:p.name,t:"人物"})});
+  events.forEach(e=>{if(e.name.includes(term))r.push({type:"event",id:e.id,name:e.name,t:"事件"})});
+  places.forEach(p=>{if(p.name.includes(term)||p.ancient.includes(term))r.push({type:"place",id:p.id,name:p.name,t:"地点"})});
+  return r.slice(0,8);
+ }
+ inp.addEventListener("input",()=>{
+  const v=inp.value.trim();
+  if(!v){sg.style.display="none";return}
+  const r=q(v);
+  sg.innerHTML=r.length?r.map(x=>`<div class="sg-item" data-t="${x.type}" data-id="${x.id}">${x.name.replace(v,"<b>"+v+"</b>")}<span class="sg-type">${x.t}</span></div>`).join(""):`<div class="sg-item">无匹配（原型示例库约40个实体）</div>`;
+  sg.style.display="block";
+  sg.querySelectorAll(".sg-item[data-id]").forEach(el=>el.addEventListener("click",()=>{
+   selected={type:el.dataset.t,id:el.dataset.id};sg.style.display="none";inp.value="";
+   tab="detail";renderTabs();renderPanel();
+  }));
+ });
+ document.addEventListener("click",e=>{if(!e.target.closest(".search"))sg.style.display="none"});
+}
+
+/* ================= 事件绑定 ================= */
+$("#audience").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+ audience=b.dataset.a;
+ $("#audience").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+ renderPanel();
+}));
+$("#tabs").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+ tab=b.dataset.t;renderTabs();renderPanel();
+}));
+$("#layers").querySelectorAll(".chk").forEach(c=>c.addEventListener("click",()=>{
+ layerState[c.dataset.l]=!layerState[c.dataset.l];
+ c.classList.toggle("on");renderMap();
+}));
+
+/* ================= 启动 ================= */
+bindPanelActions();bindGlobalFilters();
+renderLanes();renderMountRow();renderHandle();renderMap();bindTrack();renderStrip();bindSearch();renderPanel();
+</script>
+</body>
+</html>
