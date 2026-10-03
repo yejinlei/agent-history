@@ -13,5 +13,23 @@
   "sha256": "5207eacebbe82ec6c16014b404f4bef0770fb639778b5062cb289bf051fb9a7f",
   "cached": false
  },
- "_updated": "2026-10-04T02:07:38"
+ "_updated": "2026-10-04T02:28:03",
+ "wikidata": {
+  "url": "https://query.wikidata.org/sparql",
+  "file": "raw/wikidata/",
+  "bytes": 3749498,
+  "rows": 12403,
+  "parts": {
+   "persons_anchor": {
+    "file": "raw/wikidata/persons_anchor.json",
+    "rows": 403,
+    "bytes": 159779
+   },
+   "persons_cn": {
+    "file": "raw/wikidata/persons_cn.json",
+    "rows": 12000,
+    "bytes": 3589719
+   }
+  }
+ }
 }
