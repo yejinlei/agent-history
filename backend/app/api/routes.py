@@ -13,7 +13,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langgraph.types import Command
 
 from app.store import store, _LIB_FILES
@@ -875,14 +875,29 @@ def mount_start(body: MountStartIn):
                      f" 块（{rep.get('coverage')}%）：当前提案来自部分原文")
     if st.get("stage") not in ("prepared", "mounted"):
         warns.append(f"构建状态为 {st.get('stage')}：建议先补齐再挂载")
+
+    # 本体校验（SHACL）：挂载前把不合规的提案摆到人工确认界面上
+    try:
+        from app.ontology.validate import summarize, validate_proposals
+        chk = validate_proposals(proposals) if proposals else None
+    except Exception as e:                      # 校验器故障不阻塞挂载流程
+        chk = None
+        warns.append(f"本体校验不可用（{e.__class__.__name__}）")
+    if chk and not chk.get("conforms"):
+        warns.append(f"本体校验未通过：{summarize(chk)}")
+
     return {"thread_id": thread_id, "proposals": proposals,
             "pipeline_stages": [s[1] for s in PIPELINE_STAGES],
+            "shacl": ({"conforms": chk["conforms"], "count": chk["count"],
+                       "violations": chk["violations"][:20]} if chk else None),
             "warnings": warns}
 
 
 class MountCommitIn(BaseModel):
     thread_id: str
     accepted: list[bool]
+    strict: bool = Field(
+        False, description="本体校验未通过时拒绝挂载（默认只告警）")
 
 
 @router.post("/mounts/commit")
@@ -891,6 +906,21 @@ def mount_commit(body: MountCommitIn):
     state = mount_graph.get_state(cfg)
     if not state.tasks:
         raise HTTPException(400, "no pending proposal for this thread")
+
+    # 严格模式：本体校验未通过则拒绝挂载（默认只告警，由人工在界面上判断）
+    if body.strict:
+        try:
+            from app.ontology.validate import summarize, validate_proposals
+            proposals = (state.values or {}).get("proposals") or []
+            if proposals:
+                chk = validate_proposals(proposals)
+                if not chk.get("conforms"):
+                    raise HTTPException(
+                        409, f"本体校验未通过，已拒绝挂载：{summarize(chk)}")
+        except HTTPException:
+            raise
+        except Exception:
+            pass                                # 校验器故障不阻断人工确认流程
     # commit 时书可能已被旁路删除：拒绝恢复
     bid_pre = state.values.get("book_id")
     if bid_pre and next((b for b in store.books if b.id == bid_pre), None) is None:

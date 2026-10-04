@@ -1,0 +1,120 @@
+@prefix crm: <http://www.cidoc-crm.org/cidoc-crm/> .
+@prefix ex: <http://chronosino.local/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix time: <http://www.w3.org/2006/time#> .
+
+ex: a owl:Ontology ;
+    rdfs:comment "ChronoSino 本体：历史时序知识图谱的类与关系目录。导出于 2026-10-04。"@zh .
+
+<http://chronosino.local/ontology#%E4%B8%8B%E8%BE%96> a owl:ObjectProperty ;
+    rdfs:label "下辖" .
+
+<http://chronosino.local/ontology#%E4%B9%A6%E8%BD%BD%E8%A7%82%E7%82%B9> a owl:ObjectProperty ;
+    rdfs:label "书载观点" ;
+    owl:inverseOf <http://chronosino.local/ontology#%E8%A7%81%E4%BA%8E> .
+
+<http://chronosino.local/ontology#%E4%BB%8E%E5%B1%9E> a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "从属" ;
+    rdfs:comment "观念谱系上下位" .
+
+<http://chronosino.local/ontology#%E4%BB%BB%E8%81%8C%E4%BA%8E> a owl:ObjectProperty ;
+    rdfs:label "任职于" ;
+    rdfs:comment "担任某官职/隶属某机构" .
+
+<http://chronosino.local/ontology#%E5%87%BA%E5%9C%9F%E4%BA%8E> a owl:ObjectProperty ;
+    rdfs:label "出土于" .
+
+<http://chronosino.local/ontology#%E5%88%9B%E7%AB%8B> a owl:ObjectProperty ;
+    rdfs:label "创立" .
+
+<http://chronosino.local/ontology#%E5%8C%85%E5%90%AB> a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "包含" ;
+    rdfs:comment "大事件拆分出子事件" .
+
+<http://chronosino.local/ontology#%E5%8F%82%E4%B8%8E> a owl:ObjectProperty ;
+    rdfs:label "参与" ;
+    rdfs:comment "人物与事件的通用参与" .
+
+<http://chronosino.local/ontology#%E5%8F%91%E7%94%9F%E4%BA%8E> a owl:ObjectProperty ;
+    rdfs:label "发生于" .
+
+<http://chronosino.local/ontology#%E5%A5%A0%E5%AE%9A> a owl:ObjectProperty ;
+    rdfs:label "奠定" .
+
+<http://chronosino.local/ontology#%E5%B8%88%E6%89%BF> a owl:ObjectProperty ;
+    rdfs:label "师承" ;
+    owl:inverseOf <http://chronosino.local/ontology#%E5%B8%88%E4%BB%8E%2F%E5%BC%9F%E5%AD%90> .
+
+<http://chronosino.local/ontology#%E5%B9%B4%E4%BB%A3%E5%B1%9E> a owl:ObjectProperty ;
+    rdfs:label "年代属" .
+
+<http://chronosino.local/ontology#%E6%8E%A8%E8%A1%8C> a owl:ObjectProperty ;
+    rdfs:label "推行" ;
+    rdfs:comment "事件中推行某制度/观念" .
+
+<http://chronosino.local/ontology#%E6%8F%90%E5%8F%8A> a owl:ObjectProperty ;
+    rdfs:label "提及" .
+
+<http://chronosino.local/ontology#%E7%9B%9B%E8%A1%8C%E4%BA%8E> a owl:ObjectProperty ;
+    rdfs:label "盛行于" .
+
+<http://chronosino.local/ontology#%E7%BB%A7%E6%89%BF%E8%87%AA> a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "继承自" .
+
+<http://chronosino.local/ontology#%E8%A7%A6%E5%8F%91> a owl:ObjectProperty ;
+    rdfs:label "触发" ;
+    rdfs:comment "因果" .
+
+<http://chronosino.local/ontology#%E8%AE%BE%E4%BA%8E> a owl:ObjectProperty ;
+    rdfs:label "设于" ;
+    rdfs:comment "机构治所所在地" .
+
+<http://chronosino.local/ontology#%E9%93%AD%E6%96%87%E5%BD%95%E4%B8%BA> a owl:ObjectProperty ;
+    rdfs:label "铭文录为" ;
+    rdfs:comment "文物铭文/简文进入史料层" .
+
+<http://chronosino.local/ontology#%E9%9A%B6%E5%B1%9E> a owl:ObjectProperty ;
+    rdfs:label "隶属" ;
+    rdfs:comment "机构设置于某朝" .
+
+ex:Artifact a owl:Class ;
+    rdfs:label "Artifact" ;
+    rdfs:subClassOf crm:E22 .
+
+ex:Book a owl:Class ;
+    rdfs:label "Book" ;
+    rdfs:subClassOf crm:E31 .
+
+ex:Concept a owl:Class ;
+    rdfs:label "Concept" ;
+    rdfs:subClassOf crm:E28 .
+
+ex:Dynasty a owl:Class ;
+    rdfs:label "Dynasty" ;
+    rdfs:subClassOf crm:E4 .
+
+ex:Event a owl:Class ;
+    rdfs:label "Event" ;
+    rdfs:subClassOf crm:E5 .
+
+ex:Institution a owl:Class ;
+    rdfs:label "Institution" ;
+    rdfs:subClassOf crm:E74 .
+
+ex:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:subClassOf crm:E21 .
+
+ex:Place a owl:Class ;
+    rdfs:label "Place" ;
+    rdfs:subClassOf crm:E53 .
+
+ex:TimeSpan a owl:Class ;
+    rdfs:label "时期区间" ;
+    rdfs:seeAlso crm:E52 ;
+    rdfs:subClassOf time:Interval .
+
