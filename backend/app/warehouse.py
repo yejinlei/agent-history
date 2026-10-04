@@ -285,6 +285,50 @@ class Warehouse:
                   r.get("confidence")] for r in rows])
         return len(rows)
 
+    def upsert_entities(self, rows: list[dict]) -> int:
+        """按 entity_id 增量覆盖：只删再插传入的实体，不动其余行。
+
+        与 replace_entities 的区别是全表删除 vs 精确删除。挂载一本书时只有
+        该书的实体变化，全表重灌实测要 117 秒，而增量只写变化的那几千条。
+        """
+        if not rows:
+            return 0
+        ids = [r.get("entity_id") for r in rows]
+        with self.transaction():
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                self.execute("DELETE FROM entities USING "
+                             "(SELECT unnest(?) AS eid) t "
+                             "WHERE entity_id = t.eid", [chunk])
+            self._conn.executemany(
+                """INSERT INTO entities
+                   (entity_id, kind, name, year, dynasty_id, place_id,
+                    lon, lat, from_book, confidence)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                [[r.get("entity_id"), r.get("kind"), r.get("name"),
+                  r.get("year"), r.get("dynasty_id"), r.get("place_id"),
+                  r.get("lon"), r.get("lat"), r.get("from_book"),
+                  r.get("confidence")] for r in rows])
+        return len(rows)
+
+    def delete_entities(self, ids: list[str]) -> int:
+        """按 entity_id 精确删除（卸载一本书时用）。"""
+        if not ids:
+            return 0
+        n = 0
+        with self.transaction():
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                self.execute("DELETE FROM entities USING "
+                             "(SELECT unnest(?) AS eid) t "
+                             "WHERE entity_id = t.eid", [chunk])
+                n += len(chunk)
+        return n
+
+    def entity_count(self) -> int:
+        rows = self.query("SELECT count(*) FROM entities")
+        return int(rows[0][0]) if rows else 0
+
     def query_entities(self, *, year_from: int | None = None,
                        year_to: int | None = None,
                        bbox: tuple[float, float, float, float] | None = None,

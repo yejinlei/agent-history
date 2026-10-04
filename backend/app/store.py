@@ -180,8 +180,16 @@ class Store:
         _LIB_FILES.mkdir(parents=True, exist_ok=True)
         _LIB_TRASH.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        # save 全量重建（DROP+CREATE）整体临界区，杜绝并发 save 交叉破坏
+        # save 的整体临界区，杜绝并发 save 交叉破坏
         self._save_lock = threading.RLock()
+        # 增量落盘快照：记录「上次写进磁盘的内容」，save 时据此做差异。
+        # 节点：表名 → {主键: params}；边：{(源标签, 目标标签, a, b, rel, fb): params}
+        self._kz_snap: dict[str, dict] = {}
+        self._kz_edge_snap: dict[tuple, dict] = {}
+        self._pending_dangling: list[dict] = []
+        self._save_stats: dict[str, tuple[int, int, int]] = {}
+        # 本次 save 的差异明细（供 DuckDB 副本增量同步用）
+        self._last_diff: dict = {}
         # buffer_pool_size 必须显式给：默认按机器内存比例分配，挂载大书会
         # bad allocation（见 config.KUZU_BUFFER_POOL_GB 注释）。
         self._db = kuzu.Database(
@@ -191,10 +199,16 @@ class Store:
 
         if self._kuzu_ready():
             self._load_kuzu()
+            # 内存此刻等价于磁盘 → 快照对齐：下一次 save 零写入，不再整库重写
+            self._sync_snapshot()
             # 切块真值源迁移：旧库 Chunk 表数据一次性搬入 DuckDB
             self._sync_chunks_to_warehouse()
-            # 实体副本同步到 DuckDB，供 /api/graph/query 做时间/空间切片
-            self._sync_entities_to_warehouse()
+            # 实体副本同步到 DuckDB（查询用加速副本）：副本为空才全量重建，
+            # 否则按差异增量同步，避免每次启动都全表重灌（实测 117s）
+            try:
+                self._sync_entities_to_warehouse(full=warehouse.entity_count() == 0)
+            except Exception:
+                self._sync_entities_to_warehouse(full=True)
             need_rebuild = False
             # 本体深化：旧库无 Institution 表，或三类扩展实体全空
             # （表已建但迁移未落数据/被中断）→ 重新播种样例后整体重建。
@@ -261,16 +275,143 @@ class Store:
             raise RuntimeError(
                 f"拒绝落库：内存为空但图库已有 {n} 个朝代节点（重建会清空数据）")
 
-    def _create_schema(self) -> None:
-        self._refuse_wipe()          # 落库前先确认不会拿空内存覆盖非空图库
-        for t in _ALL_TABLES:
-            try:
-                self._x(f"DROP TABLE {t}")
-            except Exception:
-                pass
+    def _ensure_schema(self) -> None:
+        """确保 schema 就位；**不再 DROP 表**。
+
+        旧实现是「每次 save 都 DROP 全部表 + 全量重写」：写入量随书架线性累加
+        （第 N 本书挂载要重写前 N 本的全部节点），且每次都产生整库废页——这是
+        挂载大书时 Kuzu `bad allocation`（峰值 17.7GB）与库膨胀的根因。
+        改为增量写后，这里只在表缺失时补建。
+        """
+        self._refuse_wipe()
+        existing = self._table_names()
+        if not (existing & {"Dynasty", "Event", "Person"}):     # 全新/空库
+            for stmt in _NODE_DDL:
+                self._x(stmt)
+            self._x(_REL_DDL)
+            self._kz_snap = {}
+            self._kz_edge_snap = {}
+            return
+        if "KGREL" not in existing:
+            self._x(_REL_DDL)
         for stmt in _NODE_DDL:
-            self._x(stmt)
-        self._x(_REL_DDL)
+            name = stmt.split("(")[0].replace("CREATE NODE TABLE", "").strip()
+            if name not in existing:
+                self._x(stmt)
+                self._kz_snap.pop(name, None)   # 新表：磁盘无数据 → 整表写入
+
+    # ---------------- 增量落盘（diff-based） ----------------
+    # 执行顺序很讲究：**先删边 → 再删节点 → 再写节点 → 最后写边**。
+    # 边先删掉之后，节点删除就不必级联扫描它的全部关系——DETACH DELETE 在
+    # 上万条边上做级联时，实测会把进程顶到被原生层直接终止。
+
+    def _run_batch(self, sql: str, params_list: list[dict],
+                   batch: int = 300) -> int:
+        """分批执行同一条语句。
+
+        Kuzu 0.11 的 Python API **没有显式事务**（Connection 只有 execute），
+        所以这里做不到「每批一个事务」；`CHECKPOINT` 语句也实测对内存没有帮助
+        （默认 checkpoint_threshold=-1，且周期性 CHECKPOINT 在对照组里无效）。
+        分批仅用于把一次性超大规模的提交拆成多轮，降低瞬时压力。
+        """
+        n = 0
+        for i in range(0, len(params_list), batch):
+            for p in params_list[i:i + batch]:
+                self._x(sql, p)
+                n += 1
+        return n
+
+    def _plan_nodes(self, label: str, key_field: str, create_sql: str,
+                    rows: dict[str, dict]) -> dict:
+        """算出一张节点表的差异，返回可执行计划（**不写库**）。"""
+        old = self._kz_snap.get(label, {})
+        missing = old.keys() - rows.keys()
+        del_params = [{"k": k} for k in missing]
+        write_rows: list[dict] = []
+        changed: list = []
+        n_add = n_upd = 0
+        for k, row in rows.items():
+            prev = old.get(k)
+            if prev == row:
+                continue                       # 未变动：不写、也不进 DuckDB 投影
+            if prev is not None:               # 变更：删后重建，语义等价 upsert
+                del_params.append({"k": k})
+                n_upd += 1
+            else:
+                n_add += 1
+            write_rows.append(row)
+            changed.append(k)
+        diff = self._last_diff.setdefault("nodes", {"changed": [], "removed": []})
+        diff["changed"].extend(changed)
+        diff["removed"].extend(missing)
+        return {"label": label,
+                "del_sql": f"MATCH (n:{label} {{{key_field}:$k}}) DETACH DELETE n",
+                "create_sql": create_sql, "del_params": del_params,
+                "write_rows": write_rows, "rows": dict(rows),
+                "stats": (n_add, n_upd, len(missing))}
+
+    @staticmethod
+    def _edge_sqls(la: str, lb: str) -> tuple[str, str]:
+        """生成某组（源标签, 目标标签）的 (CREATE, DELETE) 语句。"""
+        ka = "sid" if la == "Source" else "id"
+        kb = "sid" if lb == "Source" else "id"
+        head = f"MATCH (a:{la} {{{ka}:$a}}), (b:{lb} {{{kb}:$b}}) "
+        create = (head + "CREATE (a)-[:KGREL {rel:$rel, from_book:$fb,"
+                  " confidence:$conf, src_ids:$sids}]->(b)")
+        delete = (head + "MATCH (a)-[r:KGREL {rel:$rel, from_book:$fb}]->(b)"
+                  " DELETE r")
+        return create, delete
+
+    def _plan_edges(self, rows: dict[tuple, dict]) -> list[dict]:
+        """算出边的差异，按 (源标签, 目标标签) 分组返回计划列表（不写库）。"""
+        old = self._kz_edge_snap
+        groups: dict[tuple, dict] = {}
+
+        def grp(la: str, lb: str) -> dict:
+            create_sql, delete_sql = self._edge_sqls(la, lb)
+            return groups.setdefault(
+                (la, lb), {"create_sql": create_sql, "delete_sql": delete_sql,
+                           "del_params": [], "write_rows": [], "stats": [0, 0, 0]})
+
+        for key in old.keys() - rows.keys():
+            row = old[key]
+            g = grp(row["la"], row["lb"])
+            g["del_params"].append(self._edge_key_params(row))
+            g["stats"][2] += 1
+        for key, row in rows.items():
+            prev = old.get(key)
+            if prev == row:
+                continue
+            g = grp(row["la"], row["lb"])
+            if prev is not None:
+                g["del_params"].append(self._edge_key_params(row))
+                g["stats"][1] += 1
+            else:
+                g["stats"][0] += 1
+            g["write_rows"].append({k: v for k, v in row.items()
+                                    if k not in ("la", "lb")})
+        return list(groups.values())
+
+    @staticmethod
+    def _edge_key_params(row: dict) -> dict:
+        """DELETE 语句只用到这 4 个参数，多传会被 Kuzu 拒（Parameter not found）。"""
+        return {"a": row["a"], "b": row["b"], "rel": row["rel"], "fb": row["fb"]}
+
+    def _apply_plans(self, node_plans: list[dict], edge_plans: list[dict]) -> dict:
+        """按 删边 → 删节点 → 写节点 → 写边 的顺序落盘。"""
+        for plan in edge_plans:
+            self._run_batch(plan["delete_sql"], plan["del_params"])
+        for plan in node_plans:
+            self._run_batch(plan["del_sql"], plan["del_params"])
+        for plan in node_plans:
+            self._run_batch(plan["create_sql"], plan["write_rows"])
+        for plan in edge_plans:
+            self._run_batch(plan["create_sql"], plan["write_rows"])
+        stats: dict[str, tuple[int, int, int]] = {
+            p["label"]: p["stats"] for p in node_plans}
+        stats["KGREL"] = tuple(sum(p["stats"][i] for p in edge_plans)
+                               for i in range(3))
+        return stats
 
     # ================= 遗留 JSON（一次性迁移来源） =================
     def _load_json(self) -> None:
@@ -369,43 +510,140 @@ class Store:
 
     # ================= Kuzu 读写 =================
     def save(self) -> None:
-        """全量重写 Kuzu（原型数据量小；生产改为增量事务写库）。
+        """增量落盘：只把发生变化的部分写入 Kuzu，再同步实体副本到 DuckDB。
 
-        Kuzu 落盘后同步一份实体副本到 DuckDB，供时间窗 / 空间窗切片查询。
+        旧实现是 DROP 全表 + 全量重写，写入量随书架累加；现已改为差分写
+        （详见 _save_locked），Kuzu 副本与 DuckDB 副本都只动变化的那部分。
         """
+        self._last_diff = {}
         with self._save_lock:
             self._save_locked()
         self._sync_entities_to_warehouse()
 
-    def _sync_entities_to_warehouse(self) -> None:
-        """实体投影到 DuckDB（分析副本；真值源仍是 Kuzu，可随时重建）。
+    def _entity_rows(self) -> list[dict]:
+        """构造实体投影行（真值源仍是 Kuzu，此处只是给查询加速的副本）。"""
+        rows: list[dict] = []
+        for e in self.events:
+            rows.append({"entity_id": e.id, "kind": "event", "name": e.name,
+                         "year": e.year, "dynasty_id": e.dynasty_id,
+                         "place_id": None, "lon": e.lon, "lat": e.lat,
+                         "from_book": e.from_book, "confidence": None})
+        for p in self.people:
+            rows.append({"entity_id": p.id, "kind": "person", "name": p.name,
+                         "year": _as_int(p.years[0] if p.years else None),
+                         "dynasty_id": p.dynasty_id, "place_id": None,
+                         "lon": p.lon, "lat": p.lat,
+                         "from_book": p.from_book, "confidence": None})
+        for pl in self.places:
+            rows.append({"entity_id": pl.id, "kind": "place", "name": pl.name,
+                         "year": None, "dynasty_id": None, "place_id": pl.id,
+                         "lon": pl.lon, "lat": pl.lat,
+                         "from_book": None, "confidence": None})
+        return rows
 
-        失败不影响主流程——数仓只是加速查询的副本，丢失可重建。
+    def _sync_entities_to_warehouse(self, full: bool = False) -> int:
+        """把实体投影同步到 DuckDB（可随时重建的分析副本）。
+
+        默认按本次落盘差异增量同步：挂载/卸载一本书只动它自己的实体。
+        旧版是每次 save 都 DELETE + INSERT 全表，实测 **117.6 秒/次**，
+        既是 save 的性能瓶颈，也是服务启动慢的一大来源。
+
+        失败不影响主流程——数仓只是查询副本，丢失可 full=True 重建。
         """
         try:
-            rows: list[dict] = []
-            for e in self.events:
-                rows.append({"entity_id": e.id, "kind": "event", "name": e.name,
-                             "year": e.year, "dynasty_id": e.dynasty_id,
-                             "place_id": None, "lon": e.lon, "lat": e.lat,
-                             "from_book": e.from_book, "confidence": None})
-            for p in self.people:
-                rows.append({"entity_id": p.id, "kind": "person", "name": p.name,
-                             "year": _as_int(p.years[0] if p.years else None),
-                             "dynasty_id": p.dynasty_id, "place_id": None,
-                             "lon": p.lon, "lat": p.lat,
-                             "from_book": p.from_book, "confidence": None})
-            for pl in self.places:
-                rows.append({"entity_id": pl.id, "kind": "place", "name": pl.name,
-                             "year": None, "dynasty_id": None, "place_id": pl.id,
-                             "lon": pl.lon, "lat": pl.lat,
-                             "from_book": None, "confidence": None})
-            warehouse.replace_entities(rows)
+            if full:
+                return warehouse.replace_entities(self._entity_rows())
+            diff = (self._last_diff or {}).get("nodes") or {}
+            changed, removed = diff.get("changed") or [], diff.get("removed") or []
+            if not changed and not removed:
+                return 0                       # 本次无实体变化 → 零成本
+            wanted = set(changed)
+            rows = [r for r in self._entity_rows() if r["entity_id"] in wanted]
+            warehouse.upsert_entities(rows)
+            if removed:
+                warehouse.delete_entities(removed)
+            return len(rows)
         except Exception:
-            pass
+            return 0
+
+    def _render(self) -> tuple[list[tuple[str, dict]], list[dict]]:
+        """跑一遍 _emit_statements，但把写库语句「录下来」而不是执行。"""
+        saved, out = self._x, []
+
+        def rec(sql, params=None):
+            out.append((sql, params or {}))
+            return None
+
+        self._x = rec
+        try:
+            self._emit_statements()
+        finally:
+            self._x = saved
+        return out, self._pending_dangling
 
     def _save_locked(self) -> None:
-        self._create_schema()
+        """增量落盘：内存与「上次落盘快照」做差，只写发生变化的部分。
+
+        对比旧版「DROP 全表 + 全量重写」：写入量不再随书架累加——第 N 本书
+        挂载时只写它自己的提案，而不是前 N 本书的全部节点与边。这正是挂载
+        《资治通鉴》44447 条把进程顶到 17.7GB 的根因。
+        """
+        self._ensure_schema()
+        stmts, dangling = self._render()
+        nodes: dict[str, tuple[str, str, dict]] = {}    # label -> (key, sql, rows)
+        edges: dict[tuple, dict] = {}
+        for sql, params in stmts:
+            if sql.startswith("CREATE (n:"):
+                label = sql[len("CREATE (n:"):].split(" ")[0]
+                key_field = "sid" if label == "Source" else "id"
+                _, create_sql, rows = nodes.setdefault(label, (key_field, sql, {}))
+                rows[params[key_field]] = params
+            else:                                        # MATCH(a),(b) CREATE (a)-[..]->(b)
+                la = sql.split("(a:")[1].split(" ")[0]
+                lb = sql.split("(b:")[1].split(" ")[0]
+                row = {"a": params["a"], "b": params["b"], "rel": params["rel"],
+                       "fb": params["fb"], "conf": params["conf"],
+                       "sids": params["sids"], "la": la, "lb": lb}
+                edges[(la, lb, params["a"], params["b"], params["rel"],
+                       params["fb"])] = row
+
+        node_plans = [self._plan_nodes(label, key_field, create_sql, rows)
+                      for label, (key_field, create_sql, rows) in nodes.items()]
+        edge_plans = self._plan_edges(edges)
+        stats = self._apply_plans(node_plans, edge_plans)
+        # 全部写成功后才推进快照：中途抛异常时快照保持不变，下一次能重算同样的差异
+        for plan in node_plans:
+            self._kz_snap[plan["label"]] = plan["rows"]
+        self._kz_edge_snap = dict(edges)
+        (_KG_DIR / "dangling_edges.json").write_text(_j(dangling), encoding="utf-8")
+        self._save_stats = stats        # 排错用：每张表 (新增, 变更, 删除)
+
+    def _sync_snapshot(self) -> None:
+        """把快照对齐到当前内存。
+
+        从磁盘加载完之后调用：此时内存与磁盘一致，下一次 save 应当零写入。
+        """
+        stmts, _ = self._render()
+        for sql, params in stmts:
+            if sql.startswith("CREATE (n:"):
+                label = sql[len("CREATE (n:"):].split(" ")[0]
+                key_field = "sid" if label == "Source" else "id"
+                self._kz_snap.setdefault(label, {})[params[key_field]] = params
+            else:
+                la = sql.split("(a:")[1].split(" ")[0]
+                lb = sql.split("(b:")[1].split(" ")[0]
+                self._kz_edge_snap[(la, lb, params["a"], params["b"],
+                                    params["rel"], params["fb"])] = {
+                    "a": params["a"], "b": params["b"], "rel": params["rel"],
+                    "fb": params["fb"], "conf": params["conf"],
+                    "sids": params["sids"], "la": la, "lb": lb}
+
+    def _emit_statements(self) -> None:
+        """把当前内存状态渲染成写库语句——**不真写库**。
+
+        执行时 self._x 已被换成记录器（见 _render），所有字段构造逻辑与原来
+        逐条写库的版本完全一致，因此这里不需要re改动就能切换到增量落盘。
+        """
 
         for d in self.dynasties:
             self._x(
@@ -568,8 +806,7 @@ class Store:
                  "fb": e.get("from_book"),
                  "conf": e.get("confidence", 0.8),
                  "sids": _j(e.get("src_ids", []))})
-        (_KG_DIR / "dangling_edges.json").write_text(
-            _j(dangling), encoding="utf-8")
+        self._pending_dangling = dangling     # 由 _save_locked 落盘，避免这里直写文件
 
     def _load_kuzu(self) -> None:
 
