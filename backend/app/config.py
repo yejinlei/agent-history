@@ -40,6 +40,13 @@ LLM_EXTRACT_MAX_TOKENS = int(os.getenv("LLM_EXTRACT_MAX_TOKENS", "8000"))
 # 对话/综述输出预算（0 = 不限制）
 LLM_CHAT_MAX_TOKENS = int(os.getenv("LLM_CHAT_MAX_TOKENS", "4096"))
 
+# ---- 图库（Kuzu 嵌入式）内存上限 ----
+# save() 目前是全量重建（DROP + CREATE 全表重写），挂载一本书要写入数万节点与边。
+# Kuzu 默认的 buffer pool 会按机器内存比例吃，实测挂《资治通鉴》44447 条提案时
+# 进程峰值冲到 17.7 GB 并抛 RuntimeError: bad allocation。
+# 显式给出上限，让 Kuzu 落盘换页而不是无限吃内存（牺牲速度换稳定性）。
+KUZU_BUFFER_POOL_GB = float(os.getenv("KUZU_BUFFER_POOL_GB", "6"))
+
 # ---- 本地嵌入模型（ONNX，离线可用）----
 # 当前 LLM 服务不提供 embedding 模型，RAG 的语义检索改由本地模型承担。
 # 模型存放于项目根 models/（与 backend/ 同级），由 scripts/embed_chunks.py 下载。

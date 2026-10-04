@@ -53,7 +53,7 @@ flowchart TD
     S8 --> S9["POST /api/mounts/commit：写 Kuzu 节点 + Source + 书载观点边"]
 ```
 
-【实测】《资治通鉴》1472 块全部跑完，回退块 0 / 报错块 0 / 空块 68，提案 44447 条（人物 16145 / 事件 28302），产物 13.7 MB，单轮约 4.5 小时（并发 3，约 3–5 块/分）。**第 10 步尚未成功**——见 §4.4。
+【实测】《资治通鉴》1472 块全部跑完，回退块 0 / 报错块 0 / 空块 68，全书提案 44447 条（人物 16145 / 事件 28302），单轮约 4.5 小时（并发 3，约 3–5 块/分）；第 10 步挂载已跑通，SHACL 校验 `conforms=true / violations=0`，实际落图为 **3000 人物 + 6000 事件 + 9000 条书载观点边**，耗时 4.2 分钟（规模为何从 44447 降到 9000，见 §4.4 与 §8）。
 
 ### S3 · 上传一本自己的书
 
@@ -376,8 +376,10 @@ KGREL: (资治通鉴) -[书载观点, confidence=0.8, from_book=资治通鉴]-> 
 |---|---|---|
 | 单块抽取耗时 | 13–25 s（并发 3 时约 2.4–5 块/分） | 一本书几千块意味着小时级任务，必须可续跑 |
 | 提案规模 | 一本《资治通鉴》44447 条 | 远超默认 `max_persons/events=10000`，会被静默截断 |
-| **挂载内存** | 一次写 44446 个节点 → Kuzu `RuntimeError: bad allocation` | **当前批次挂载失败的根因**，需分批落盘或分批改量（尚未修复） |
+| **挂载内存** | 一次写 44446 个节点 → 进程峰值 17.7 GB → Kuzu `bad allocation` 失败 | `save()` 是全量重写，单次挂载不能是全书的 4.4 万条；已给 Kuzu 显式 `buffer_pool_size`（`KUZU_BUFFER_POOL_GB`，默认 6），并把单次挂载规模压到 TopN 9000 条（人物 3000 / 事件 6000）后成功；**根治要改成分批事务/增量写库**（§8） |
+| 挂载耗时 | 9000 条提案：commit 4.2 分钟，服务进程峰值 8.9 GB | 单本挂载的成本可接受；原 4.4 万条规模目前不可挂载 |
 | 事件 id 冲突 | 旧版 id 是裸 `e0/e1…`，与上一本书撞主键 | 已改为 `{book_id}_e{i}` 书级前缀 |
+| 挂载失败会留脏状态 | `book.mounted=True` 在 `save()` 之前赋值，`save()` 抛错后内存已标记、图里却没数据；再次 `apply` 因此被 409 拒绝 | 挂载前先确认 `mounted`，脏则 `POST /api/mounts/unmount` 再重来 |
 
 ---
 
@@ -478,9 +480,9 @@ flowchart TB
 | 原始·模型 | `models/…/model_optimized.onnx` | 94.8 MB | ✅ | 中 |
 | 主干派生表 | `app/data/core/normalized/` | ~111 MB | ✅ | 中（`fetch_core.py` + manifest 可重建） |
 | 主干大件 | `app/data/core/raw/` | ~858 MB | ❌ | 脚本重抓（超 GitHub 100 MB 单文件限制） |
-| 构建·数仓 | `app/data/warehouse/` | **593.1 MB**【实测】 | ❌ | **高（`extract_raw` 是烧钱的 LLM 结果）** |
-| 构建·图库 | `app/data/kg/` | 663.8 MB【实测】 | ❌ | 中高（重新挂载） |
-| 过程产物 | `app/data/ingest/` | 14.5 MB【实测】 | ❌ | 低（由数仓秒级重算） |
+| 构建·数仓 | `app/data/warehouse/` | **594.2 MB**【实测】 | ❌ | **高（`extract_raw` 是烧钱的 LLM 结果）** |
+| 构建·图库 | `app/data/kg/` | 669.1 MB【实测，挂载后】 | ❌ | 中高（重新挂载） |
+| 过程产物 | `app/data/ingest/` | 4.1 MB【实测，缩到 9000 提案后】 | ❌ | 低（由数仓秒级重算） |
 | 本机冷备份 | `backend/_backup/<时间戳>/` | 1180.7 MB【实测】 | ❌ | — |
 
 一句话：**只有 `warehouse` 里的 `extract_raw` 是真正昂贵且不可替代的资产**，产物 JSON 与图谱都能从它重算；当前它靠 `backup_data.py` 做本机兜底（`--keep 3`），注意备份需停服后执行。
@@ -525,9 +527,10 @@ flowchart TB
 1. **【未接线】主干字典未接入链路**：`import_core.py --load` 能写 `core_persons/core_places/core_anchors`，但 `app/` 下无任何查询代码，S6 目前是"生产了数据但没人用"。
 2. **【未接线】`EntityType` 枚举滞后**：只有 dynasty/event/person/place 四个成员，未覆盖已建模的 Institution/Artifact/Concept。
 3. **【未接线】本体导出**：`scripts/export_owl.py`（→ chronosino.owl，含 CIDOC CRM / OWL-Time 映射）与 `validate_shacl.py --all` 仍标注"计划"。
-4. **【待修复】大批量挂载撑爆内存**：4.4 万节点一次性 `commit` 触发 Kuzu `bad allocation`；候选方案为分批落盘或分批 proposal。
+4. **【待根治】大批量挂载撑爆内存**：4.4 万节点一次性 `commit` 触发 Kuzu `bad allocation`（进程峰值 17.7 GB），现以「显式 `buffer_pool_size` + 单次挂载压到 TopN 9000 条」绕过；根治是把 `save()` 的全量重写改成分批写事务（`begin_write_transaction` / `commit`）或增量写库——不改，后面每本大书都要手动控规模，且 3000/6000 的 TopN 是**按提及权重截断**的，等于丢掉了长尾事实。
 5. **【语义待澄清】`link` 提案恒为 0**：`_to_proposals` 只把能解析到主干的 link 转成提案，本书新实体的关系因此被丢弃；当前图谱的边实际是"书→节点"的书载观点边，而非抽取器给出的人物—事件关系。是否要把 LLM 抽出的 `links` 变成真正的实体间边，是一个待定的设计决策。
 6. **【运维】产物与数仓均未入库**：二者都标 ❌，`extract_raw` 只靠本机备份保护；是否改为可入库的 jsonl 导出，尚未拍板。
+7. **【容错】挂载失败会留下半挂载脏状态**：`_commit_locked` 先置 `book.mounted=True` 再 `save()`，`save()` 抛异常（如上面的 bad allocation）后内存里是"已挂载"、磁盘里却没有数据，重来会被 `apply` 的 409 挡住，且停服重启才清得干净。应把 `mounted` 标记挪到 `save()` 成功之后，或包成 Kuzu 事务回滚。
 
 ---
 

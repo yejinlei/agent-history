@@ -23,6 +23,7 @@ from pathlib import Path
 
 import kuzu
 
+from app import config
 from app.data import seed
 from app.warehouse import warehouse
 from app.schema.ontology import (
@@ -181,7 +182,11 @@ class Store:
         self._lock = threading.RLock()
         # save 全量重建（DROP+CREATE）整体临界区，杜绝并发 save 交叉破坏
         self._save_lock = threading.RLock()
-        self._db = kuzu.Database(str(_KUZU_DB))
+        # buffer_pool_size 必须显式给：默认按机器内存比例分配，挂载大书会
+        # bad allocation（见 config.KUZU_BUFFER_POOL_GB 注释）。
+        self._db = kuzu.Database(
+            str(_KUZU_DB),
+            buffer_pool_size=int(config.KUZU_BUFFER_POOL_GB * 1024 ** 3))
         self._conn = kuzu.Connection(self._db)
 
         if self._kuzu_ready():
