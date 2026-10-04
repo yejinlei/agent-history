@@ -11,13 +11,11 @@ import time
 
 from app import config
 
-# 网关实测：RPS 配额很低（并发 8 直接 429 "rps exhausted"），且空响应率高。
-# 因此默认做两件事：① 调用之间强制最小间隔（限速）；② 空响应/异常退避重试。
-_MIN_INTERVAL = float(os.getenv("LLM_MIN_INTERVAL", "1.5"))
-_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
-# 该网关的模型默认是「推理型」：token 全被 reasoning 吃掉，content 恒为空。
-# 必须显式关闭思考（extra_body.thinking.type=disabled），否则抽取永远拿不到结果。
-_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "1") != "0"
+# 以下全部来自 .env（见 config.py 的 LLM_* 段），换模型/换网关只改配置不动代码。
+_MIN_INTERVAL = config.LLM_MIN_INTERVAL          # 限速，避免 429 rps exhausted
+_MAX_RETRY = config.LLM_MAX_RETRY                # 空响应 / 429 / 超时的重试次数
+_TIMEOUT = config.LLM_TIMEOUT                    # 网关会偶发挂死，必须设硬超时
+_DISABLE_THINKING = config.LLM_DISABLE_THINKING  # 推理型模型须显式关思考
 _gate_lock = threading.Lock()
 _last_call = 0.0
 
@@ -81,21 +79,23 @@ class OpenAILLM:
         kw = {"model": self.model,
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": question}],
-              "temperature": 0.2}
+              "temperature": config.LLM_TEMPERATURE}
+        if config.LLM_CHAT_MAX_TOKENS:      # 0 = 不限制
+            kw["max_tokens"] = config.LLM_CHAT_MAX_TOKENS
         if _DISABLE_THINKING:      # 推理型模型默认会把 token 全用在思考上
             kw["extra_body"] = {"thinking": {"type": "disabled"}}
         try:
-            resp = self.client.chat.completions.create(**kw)
+            resp = self.client.chat.completions.create(**kw, timeout=_TIMEOUT)
         except Exception:
             kw.pop("extra_body", None)      # 网关不认该参数时降级重试
-            resp = self.client.chat.completions.create(**kw)
+            resp = self.client.chat.completions.create(**kw, timeout=_TIMEOUT)
         return resp.choices[0].message.content or ""
 
     def chat(self, system: str, user: str, max_tokens: int | None = None) -> str:
         kw = {"model": self.model,
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": user}],
-              "temperature": 0.2}
+              "temperature": config.LLM_TEMPERATURE}
         # 网关实测：不设上限时可能长时间不返回；给足上限反而稳定且更快
         if max_tokens:
             kw["max_tokens"] = int(max_tokens)
@@ -106,7 +106,8 @@ class OpenAILLM:
         for attempt in range(_MAX_RETRY + 1):
             _wait_turn()                      # 限速：避免触发 429 rps exhausted
             try:
-                resp = self.client.chat.completions.create(**kw)
+                resp = self.client.chat.completions.create(**kw,
+                                                           timeout=_TIMEOUT)
                 out = (resp.choices[0].message.content or "").strip()
                 if out:                        # 空响应视为失败，退避重试
                     return out

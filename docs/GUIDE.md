@@ -120,24 +120,17 @@ seed 边用拼音命名空间   xiangyu → gaixia
 
 # 第二部分 · 系统构成
 
-```
-┌──── 源头层 ────┐   内置史书 27 本(71.9MB) · 瓦片 181,133 张(1022MB)
-│                │   主干权威源 857.8MB（CBDB/CHGIS/Wikidata/CIDOC/OWL-Time）
-└───────┬────────┘   本地嵌入模型 94.8MB
-        │ fetch_core.py → extract_core.py → parse/chunk
-┌───────▼────────┐
-│ 派生层          │   主干精简表 87MB · 切块 chunks+embedding · LLM 抽取 extract_raw
-└───────┬────────┘
-        │ import_core.py（计划） · apply → mount（人工确认）
-┌───────▼────────┐
-│ 真值层（Kuzu）  │   84 朝代 / 2934 事件 / 2057 人物 / 9 地点；KGREL 4917 边
-└───────┬────────┘
-        │ 同步投影
-┌───────▼────────┐
-│ 服务层（DuckDB）│   entities 投影 · 进度台账 · RAG 检索（向量 + BM25 回退）
-└───────┬────────┘
-        ▼
-   API(41 端点) → 前端（时间轴/地图/图谱/本体/右栏/挂载/Agent）· Agent（含写操作确认卡）
+```mermaid
+flowchart TB
+    SRC["源头层<br/>内置史书 27 本 71.9MB · 瓦片 181,133 张 1022MB<br/>主干权威源 857.8MB（CBDB / CHGIS / Wikidata / CIDOC / OWL-Time）<br/>本地嵌入模型 94.8MB"]
+    DER["派生层<br/>主干精简表 87MB · 切块 chunks + embedding · LLM 抽取 extract_raw"]
+    TRUTH["真值层 Kuzu<br/>84 朝代 / 2934 事件 / 2057 人物 / 9 地点；KGREL 4917 边"]
+    SERVE["服务层 DuckDB<br/>entities 投影 · 进度台账 · RAG 检索（向量 + BM25 回退）"]
+    USE["API 41 端点 → 前端（时间轴 / 地图 / 图谱 / 本体 / 右栏 / 挂载 / Agent）<br/>Agent（含写操作确认卡）"]
+    SRC -->|"fetch_core.py → extract_core.py → parse/chunk"| DER
+    DER -->|"import_core.py（计划）· apply → mount（人工确认）"| TRUTH
+    TRUTH -->|"同步投影"| SERVE
+    SERVE --> USE
 ```
 
 **一句话**：Kuzu 存「是什么」（实体与语义关系，真值源），DuckDB 存「怎么来的」（原文切块、LLM 抽取、进度台账）与检索副本；权威源是主干，书籍是挂在主干上的扩展知识。

@@ -22,6 +22,24 @@ CHAT_API_KEY = os.getenv("CHAT_API_KEY", "") or OPENAI_API_KEY
 CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", "") or OPENAI_BASE_URL
 CHAT_MODEL = os.getenv("CHAT_MODEL", "") or OPENAI_MODEL
 
+# ---- LLM 调用行为（不同模型/网关差异很大，全部可在 .env 里调，改完重启即生效）----
+# 单次调用硬超时（秒）。网关会偶发挂死（实测 >6min 无响应），而 SDK 默认不超时，
+# 批处理会被单个请求拖死；超时按失败计入重试。
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "90"))
+# 全局调用最小间隔（秒）：RPS 配额很低，并发高会 429 rps exhausted
+LLM_MIN_INTERVAL = float(os.getenv("LLM_MIN_INTERVAL", "1.5"))
+# 单次调用的最大重试次数（空响应 / 429 / 超时都计入）
+LLM_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
+# 推理型模型（token 全被 reasoning 吃掉、content 恒空）必须显式关思考
+LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "1") != "0"
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+# 抽取：单块送入的原文上限（字）。给太多 → 输出 JSON 变长 → 被 max_tokens 截断
+LLM_EXTRACT_INPUT_CHARS = int(os.getenv("LLM_EXTRACT_INPUT_CHARS", "6000"))
+# 抽取：输出预算。须 ≥ 输入能催生的 JSON token 量，否则 finish_reason=length 截断
+LLM_EXTRACT_MAX_TOKENS = int(os.getenv("LLM_EXTRACT_MAX_TOKENS", "8000"))
+# 对话/综述输出预算（0 = 不限制）
+LLM_CHAT_MAX_TOKENS = int(os.getenv("LLM_CHAT_MAX_TOKENS", "4096"))
+
 # ---- 本地嵌入模型（ONNX，离线可用）----
 # 当前 LLM 服务不提供 embedding 模型，RAG 的语义检索改由本地模型承担。
 # 模型存放于项目根 models/（与 backend/ 同级），由 scripts/embed_chunks.py 下载。

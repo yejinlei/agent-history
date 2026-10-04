@@ -157,13 +157,16 @@ def _model_key(llm) -> str:
     return f"llm:{getattr(llm, 'model', None) or getattr(llm, 'name', 'llm')}"
 
 
-def _build_opts(o: RunOptions) -> BuildOptions:
+def _build_opts(o: RunOptions, bid: str = "") -> BuildOptions:
+    # 事件 id 必须有书级前缀：否则每本书都从 e0 开始，第二本书挂载时
+    # 会和上一本占掉的 id 撞主键（Kuzu 报 duplicated primary key）。
+    # 人物沿用 normalize（名字本身即跨书自然对齐的键）。
     return BuildOptions(
         chunk_size=o.chunk_size, chunk_overlap=o.chunk_overlap,
         extract_size=o.extract_size, extract_overlap=o.extract_overlap,
         max_persons=o.max_persons, max_events=o.max_events,
         min_confidence=o.min_confidence, align_mode=o.align_mode,
-        person_id_mode="normalize", id_prefix="",
+        person_id_mode="normalize", id_prefix=bid,
     )
 
 
@@ -414,7 +417,7 @@ def run_book(book_id: str, *, store=None, opts: RunOptions | None = None,
             raw_n = len(rows)
             print(f"  [收口] 合并已落盘的 {raw_n} 块抽取结果重算提案")
     proposals, info = finalize(acc, known=known, resolver=resolver,
-                               opts=_build_opts(o))
+                               opts=_build_opts(o, book_id))
     rep = ({} if o.dry_run else warehouse.piece_report(book_id, model, limit))
     res.proposals = proposals
     res.processed = cnt["done"]

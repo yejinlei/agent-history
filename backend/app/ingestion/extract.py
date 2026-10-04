@@ -17,6 +17,7 @@ import json
 import re
 from pathlib import Path
 
+from app import config
 from app.ingestion.resolve import normalize_name
 
 _DATA = Path(__file__).resolve().parents[1] / "data"
@@ -207,25 +208,86 @@ _LLM_RULES = (
     "4) 无内容时各数组留空。\nJSON 结构：\n" + _LLM_SCHEMA + "\n\n史籍文本：\n")
 
 
+def _iter_objects(s: str):
+    """扫描出所有顶层平衡 {...} 片段（忽略字符串内的括号）。"""
+    depth, start, in_q, esc = 0, None, False, False
+    for i, c in enumerate(s):
+        if in_q:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_q = False
+            continue
+        if c == '"':
+            in_q = True
+        elif c == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                yield s[start:i + 1]
+                start = None
+
+
+def _loads_tolerant(raw: str) -> dict:
+    """JSON 解析，容忍被 max_tokens 截断的输出。
+
+    截断时整段 json.loads 会失败，但已完成的对象是完整的；
+    逐个对象解析可以救回这部分内容，而不是整块退化成启发式抽取。
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    persons, events, links = [], [], []
+    for frag in _iter_objects(raw):
+        try:
+            obj = json.loads(frag)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if {"src", "dst", "rel"} <= obj.keys():
+            links.append(obj)
+        elif "year" in obj:
+            events.append(obj)
+        elif "name" in obj:
+            persons.append(obj)
+    return {"persons": persons, "events": events, "links": links,
+            "_truncated": True}
+
+
 def extract_llm(text: str, llm) -> dict:
-    # 关闭思考后 token 全给正文：2400 字原文可产出 ~4700 字符 JSON，
-    # 预算给 2000 会被截断（finish_reason=length）导致 JSON 不完整。
-    raw = llm.chat(_LLM_SYS, _LLM_RULES + text[:12000], max_tokens=4000)
+    # 输入越长输出越长：12000 字原文常产出近万字符 JSON，token 预算吃满会被
+    # 截断（finish_reason=length），解析失败后整块退化成启发式抽取。
+    # 这里把输入收到 6000 字并给足输出预算，再叠加截断容错兜底。
+    raw = llm.chat(_LLM_SYS, _LLM_RULES + text[:config.LLM_EXTRACT_INPUT_CHARS],
+                   max_tokens=config.LLM_EXTRACT_MAX_TOKENS)
     raw = raw.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```[a-zA-Z]*|```$", "", raw).strip()
-    data = json.loads(raw)
+    if not raw.startswith("{"):        # 前面有解释文字时截取 JSON 主体
+        i = raw.find("{")
+        if i > 0:
+            raw = raw[i:]
+    data = _loads_tolerant(raw) or {}
     persons, events, links = [], [], []
-    for p in data.get("persons", [])[:30]:
-        if not p.get("name"):
+    # 模型常把可选字段写成 null（"aliases": null / "persons": null），
+    # 统一兜底成空值，否则一次迭代崩溃就整块退化成启发式抽取。
+    for p in (data.get("persons") or [])[:30]:
+        if not isinstance(p, dict) or not p.get("name"):
             continue
         persons.append({"name": str(p["name"])[:20],
-                        "aliases": [str(a) for a in p.get("aliases", [])][:5],
+                        "aliases": [str(a) for a in (p.get("aliases") or [])][:5],
                         "summary": str(p.get("summary", ""))[:200],
                         "confidence": _clamp(p.get("confidence", 0.6)),
                         "dynasty_id": p.get("dynasty_id") or None})
-    for e in data.get("events", [])[:30]:
-        if not e.get("name"):
+    for e in (data.get("events") or [])[:30]:
+        if not isinstance(e, dict) or not e.get("name"):
             continue
         year = e.get("year")
         events.append({"name": str(e["name"])[:30],
@@ -236,7 +298,9 @@ def extract_llm(text: str, llm) -> dict:
                        "summary": str(e.get("summary", ""))[:240],
                        "confidence": _clamp(e.get("confidence", 0.6)),
                        "dynasty_id": e.get("dynasty_id") or None})
-    for l in data.get("links", [])[:40]:
+    for l in (data.get("links") or [])[:40]:
+        if not isinstance(l, dict):
+            continue
         if l.get("src") and l.get("dst") and l.get("rel"):
             links.append({"src": str(l["src"])[:20], "dst": str(l["dst"])[:20],
                           "rel": str(l["rel"])[:12],
@@ -258,7 +322,10 @@ def extract(text: str, *, llm=None, known: dict | None = None) -> dict:
     if llm is not None and getattr(llm, "name", "stub") != "stub":
         try:
             return extract_llm(text, llm)
-        except Exception:
+        except Exception as e:  # 诊断期：把真实的回退原因打出来
+            import sys as _s
+            print(f"[extract] LLM 失败回退启发式：{type(e).__name__}: "
+                  f"{str(e)[:200]}", file=_s.stderr, flush=True)
             out = extract_heuristic(text, known)
             out["mode"] = "heuristic"
             return out

@@ -13,52 +13,73 @@
 
 ## 1. 数据血缘总图
 
-```
-┌──────────────────────── 源头层（source） ────────────────────────┐
-│ 内置史书原文      app/data/books/*.txt        27 本  71.9 MB  ✅入库 │
-│ 地图瓦片          app/data/tiles/**.png   181,133 张 1022.8 MB ✅入库 │
-│ 主干权威源        app/data/core/raw/**          857.8 MB  ❌不入（超限，脚本重建）│
-│   ├ CBDB sqlite 837 MB（535,181 人物 / 82 朝代 / 33,957 官职）        │
-│   ├ CHGIS MySQL dump 16 MB（122,075 历史地名）                        │
-│   ├ Wikidata SPARQL 3.6 MB（12,403 人物锚点）                         │
-│   └ CIDOC CRM OWL 0.8 MB / OWL-Time RDF 0.1 MB（本体词汇，仅对齐用） │
-│ 本地嵌入模型      models/…/model_optimized.onnx   94.8 MB      ✅入库 │
-└────────────────────────────────────────────────────────────────┘
-            │ fetch_core.py            │ extract_core.py        │ parse/chunk
-            ▼                          ▼                        ▼
-┌──────────────────────── 派生层（derived） ────────────────────────┐
-│ 主干精简表   app/data/core/normalized/*.jsonl   87 MB      ✅入库   │
-│   ├ cbdb_persons_001..004.jsonl   535,180 人                       │
-│   ├ chgis_places.jsonl            122,075 地名                     │
-│   └ wikidata_anchors.jsonl         12,403 锚点（含 CBDB 交叉 403）  │
-│ 切块原文     warehouse.chunks（含 embedding）        ❌不入（可重跑）│
-│ LLM 抽取结果 warehouse.extract_raw（最贵，重跑要花钱）❌不入         │
-└────────────────────────────────────────────────────────────────┘
-            │ import_core.py（计划）   │ apply → mount（人工确认）
-            ▼                          ▼
-┌──────────────────────── 真值层（truth） ─────────────────────────┐
-│ Kuzu 图库  app/data/kg/         658.7 MB  ❌不入（构建产物）        │
-│   ├ 节点表 Dynasty 84 / Event 2934 / Person 2057 / Place 9 / …     │
-│   └ 关系表 KGREL 4917 条（当前 rel 仅「书载观点」，语义边待补）      │
-│ 书级产物   Book.extracts、merges.json、kg/dangling_edges.json       │
-└────────────────────────────────────────────────────────────────┘
-            │ _sync_entities_to_warehouse（每次 save 后）
-            ▼
-┌──────────────────────── 检索层（serving） ───────────────────────┐
-│ DuckDB  app/data/warehouse/      518.8 MB  ❌不入                   │
-│   ├ entities（Kuzu 实体的投影副本，供时间窗/空间窗快查）             │
-│   ├ ingest_progress / book_runs（块级进度与书状态）                 │
-│   └ ingest_failures / book_run_params（失败台账、参数指纹）          │
-│ RAG：retrieve_chunks() = 向量检索（LocalEmbedder ONNX，512 维）      │
-│      → 失败/无向量时回退 BM25                                       │
-└────────────────────────────────────────────────────────────────┘
-            ▼
-┌──────────────────────── 消费层（consume） ───────────────────────┐
-│ API：/api/timeline /events /search /entity /kg/* /graph/query      │
-│      /maps /ontology /chat（含 grounding 接地校验）/actions /agents │
-│ 前端：时间轴 · 地图 · 图谱 · 本体导航 · 右栏 · 书籍挂载 · Agent 管理 │
-│ Agent：只读工具（图谱浏览 / RAG / 史料）＋ 写操作走确认卡，可 undo   │
-└────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph SRC["源头层 source"]
+        S1["内置史书原文 · app/data/books/*.txt · 27 本 71.9 MB · ✅入库"]
+        S3["主干权威源 · app/data/core/raw/** · 857.8 MB · ❌不入（超限，脚本重建）"]
+        S3a["CBDB sqlite 837 MB（535,181 人物 / 82 朝代 / 33,957 官职）"]
+        S3b["CHGIS MySQL dump 16 MB（122,075 历史地名）"]
+        S3c["Wikidata SPARQL 3.6 MB（12,403 人物锚点）"]
+        S3d["CIDOC CRM OWL 0.8 MB / OWL-Time RDF 0.1 MB（本体词汇，仅对齐用）"]
+        S2["地图瓦片 · app/data/tiles/**.png · 181,133 张 1022.8 MB · ✅入库"]
+        S4["本地嵌入模型 · models/…/model_optimized.onnx · 94.8 MB · ✅入库"]
+        S3 --- S3a
+        S3 --- S3b
+        S3 --- S3c
+        S3 --- S3d
+    end
+
+    subgraph DER["派生层 derived"]
+        D1["主干精简表 · app/data/core/normalized/*.jsonl · 87 MB · ✅入库"]
+        D1a["cbdb_persons_001..004.jsonl · 535,180 人"]
+        D1b["chgis_places.jsonl · 122,075 地名"]
+        D1c["wikidata_anchors.jsonl · 12,403 锚点（含 CBDB 交叉 403）"]
+        D2["切块原文 · warehouse.chunks（含 embedding）· ❌不入（可重跑）"]
+        D3["LLM 抽取结果 · warehouse.extract_raw（最贵，重跑要花钱）· ❌不入"]
+        D1 --- D1a
+        D1 --- D1b
+        D1 --- D1c
+    end
+
+    subgraph TRUTH["真值层 truth"]
+        T1["Kuzu 图库 · app/data/kg/ · 658.7 MB · ❌不入（构建产物）"]
+        T1a["节点表 Dynasty 84 / Event 2934 / Person 2057 / Place 9 / …"]
+        T1b["关系表 KGREL 4917 条（当前 rel 仅「书载观点」，语义边待补）"]
+        T2["书级产物 · Book.extracts、merges.json、kg/dangling_edges.json"]
+        T1 --- T1a
+        T1 --- T1b
+    end
+
+    subgraph SERVE["检索层 serving"]
+        V1["DuckDB · app/data/warehouse/ · 518.8 MB · ❌不入"]
+        V1a["entities（Kuzu 实体的投影副本，供时间窗 / 空间窗快查）"]
+        V1b["ingest_progress / book_runs（块级进度与书状态）"]
+        V1c["ingest_failures / book_run_params（失败台账、参数指纹）"]
+        V2["RAG：retrieve_chunks = 向量检索 LocalEmbedder ONNX 512 维<br/>失败 / 无向量时回退 BM25"]
+        V1 --- V1a
+        V1 --- V1b
+        V1 --- V1c
+    end
+
+    subgraph USE["消费层 consume"]
+        U1["API：/api/timeline /events /search /entity /kg/* /graph/query<br/>/maps /ontology /chat（含 grounding 接地校验）/actions /agents"]
+        U2["前端：时间轴 · 地图 · 图谱 · 本体导航 · 右栏 · 书籍挂载 · Agent 管理"]
+        U3["Agent：只读工具（图谱浏览 / RAG / 史料）＋ 写操作走确认卡，可 undo"]
+    end
+
+    S3 -->|"fetch_core.py → extract_core.py"| D1
+    S1 -->|"parse / chunk"| D2
+    S1 -->|"抽取（--llm）"| D3
+    D1 -->|"import_core.py（计划）"| T1
+    D2 -->|"apply → mount（人工确认）"| T1
+    D3 -->|"finalize → 提案"| T2
+    T1 -->|"_sync_entities_to_warehouse（每次 save 后）"| V1
+    V1 --> V2
+    V2 --> U1
+    T1 --> U1
+    U1 --> U2
+    U1 --> U3
 ```
 
 ### 入库 / 不入库总账
