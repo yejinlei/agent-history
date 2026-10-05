@@ -155,6 +155,31 @@ def _as_int(v) -> int | None:
         return None
 
 
+# 单条连接写满这么多行就重开一次库：不重开缓冲池的脏页释放不掉，
+# 会在大书挂载时抛 "buffer pool is full"（见 _run_batch 注释）
+_REOPEN_EVERY = 2000
+
+# 提案条数超过这个数就不再内联进 Book 节点，改由产物文件承载
+# （见 _render 里 extracts 的注释）
+_INLINE_EXTRACTS_MAX = 300
+
+
+def _artifact_proposals(book_id: str) -> list[dict]:
+    """从离线产物 data/ingest/<id>.json 读回提案。"""
+    p = _DATA_DIR / "ingest" / f"{book_id}.json"
+    try:
+        if not p.exists():
+            return []
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    for key in ("proposals", "extracts"):
+        v = data.get(key)
+        if isinstance(v, list):
+            return v
+    return []
+
+
 def _strip_node(d: dict) -> dict:
     d.pop("_id", None)
     d.pop("_label", None)
@@ -339,12 +364,21 @@ class Store:
         所以这里做不到「每批一个事务」；`CHECKPOINT` 语句也实测对内存没有帮助
         （默认 checkpoint_threshold=-1，且周期性 CHECKPOINT 在对照组里无效）。
         分批仅用于把一次性超大规模的提交拆成多轮，降低瞬时压力。
+
+        真正能回收内存的是**重开库**：一条连接攒下上万次更新后，缓冲池的脏页
+        一个都释放不掉，会直接抛
+        `Buffer manager exception: Unable to allocate memory`（《读通鉴论》
+        挂载 1.6 万条提案时必现，加大缓冲池只能推迟、不能消除）。所以写够
+        一定行数就重开一次库，让 Kuzu 落盘并释放缓冲池。
         """
         n = 0
+        big = len(params_list) >= _REOPEN_EVERY * 2
         for i in range(0, len(params_list), batch):
             for p in params_list[i:i + batch]:
                 self._x(sql, p)
                 n += 1
+                if big and n % _REOPEN_EVERY == 0:
+                    self._reset_kuzu_connection()
         return n
 
     @staticmethod
@@ -933,7 +967,14 @@ class Store:
                  "year": b.year, "lv": b.level, "color": b.color,
                  "did": b.dynasty_id, "span": _j(list(b.span)),
                  "tags": _j(b.tags), "descr": b.description,
-                 "ex": _j([x.model_dump() for x in b.extracts]),
+                 # 提案**不再整包写进 Book 节点**：单本动辄上万条（读通鉴论
+                 # 1.6 万条 = 数 MB 字符串），Kuzu 扫描时必须把这些巨型行整页
+                 # pin 住，缓冲池直接爆（"buffer pool is full"，加大缓冲池只能
+                 # 推迟），而且写一半被中断还会留下坏 JSON 让服务起不来。
+                 # 真值源是 data/ingest/<id>.json 产物文件；小书（策展的几本）
+                 # 没有产物文件，仍然照原样写进节点。
+                 "ex": _j([x.model_dump() for x in b.extracts])
+                       if len(b.extracts) <= _INLINE_EXTRACTS_MAX else "[]",
                  "mounted": b.mounted,
                  "origin": getattr(b, "origin", "builtin"),
                  "file": getattr(b, "file", None),
@@ -1087,8 +1128,10 @@ class Store:
             # 进程被强杀时，正在写的这一列可能留下半截 JSON。以前直接 json.loads
             # 会让**整个服务起不来**（不是少一本的数据问题，是全套接口都挂）。
             # 坏数据按空处理：提案随时能重算，服务可用优先。
+            # 大书的提案不内联在节点里（见 _render），这里回落到产物文件。
             extracts=[Extract.model_validate(x)
-                      for x in _loads_or(d["extracts"], [])],
+                      for x in (_loads_or(d["extracts"], [])
+                                or _artifact_proposals(d["id"]))],
             mounted=bool(d["mounted"]),
             origin=d.get("origin") or "builtin", file=d.get("file"),
             accepted=_loads_or(d.get("accepted") or "null", None),

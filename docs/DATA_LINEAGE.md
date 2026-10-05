@@ -1,13 +1,37 @@
 # 数据血缘与构建手册（本体 · 图谱 · RAG · 界面 · Agent）
 
-> 定位：一篇讲清「数据从哪来、变成什么、存在哪、进不进版本库、后续怎么继续构建、界面和 Agent 怎么用」。
+> 定位：一篇讲清「数据从哪来、变成什么、存在哪、进不进版本库、后续怎么继续构建、界面和 Agent 怎么用」，并给出**字段级数据字典与跨库关联键**（§10）。
 > 配套：`docs/PLAN.md`（总体方案）、`docs/BUILD.md`（逐步构建操作）、`docs/ONTOLOGY_ALIGN.md`（外部本体对齐与闸门）。
+>
+> 路径约定：下文 `app/data/**` 均指**数据目录**，默认 `backend/app/data`，可用环境变量
+> `CHRONOSINO_DATA_DIR` 整体挪盘（各模块一律经 `config.DATA_DIR` 取路径）。
+> **当前实例指向 `C:\agent-history-data`**（D 盘空间不足时迁出，见 `backend/.env`）。
 
 ---
 
 ## 0. 一句话概览
 
 **Kuzu 图库存「是什么」（实体与语义关系，真值源），DuckDB 数仓存「怎么来的」（原文切块、LLM 抽取结果、进度台账）与检索副本；权威源（CBDB/CHGIS/Wikidata/CIDOC/OWL-Time）是主干，书籍（《史记》《二十四史》《资治通鉴》…）是挂在主干上的扩展知识。**
+
+---
+
+## 图索引（13 张）
+
+| 图 | 位置 | 看什么 |
+|---|---|---|
+| 数据血缘总图 | §1 | 五层：源头 → 派生 → 真值 → 检索 → 消费 |
+| 分层与读写路径 | §1.1 | 哪些进程写哪份存储、谁读谁 |
+| 单本构建流水线 | §3.1 | 切块 → 抽取 → 收口 → 产物（含容错分支） |
+| 单本构建时序 | §3.2 | 与数仓 / LLM 的读写先后顺序 |
+| 挂载时序 | §3.3 | apply → start → 人工勾选 → commit |
+| 五道闸门 | §3.3 | G1–G5 分别卡在哪一步 |
+| 卸载与重挂 | §3.4 | 先清磁盘、后改内存，不存在半成品 |
+| Store.save 内部 | §3.5 | 差分写 + 每 2000 行重开连接 |
+| RAG 检索数据流 | §4.1 | 向量 → BM25 回退 → 接地校验 |
+| Agent 审批时序 | §7.1 | 确认卡 → 复核 → 执行 → undo |
+| 备份与恢复 | §8 | 停服 → 备份 → 覆盖 → 验收 / 回滚 |
+| 图库模式 | §10.1 | 9 张节点表与 24 种边名 |
+| 跨库关联键 | §10.3 | Kuzu ↔ DuckDB 的外键与副本关系 |
 
 ---
 
@@ -43,19 +67,19 @@ flowchart TB
     end
 
     subgraph TRUTH["真值层 truth"]
-        T1["Kuzu 图库 · app/data/kg/ · 658.7 MB · ❌不入（构建产物）"]
-        T1a["节点表 Dynasty 84 / Event 2934 / Person 2057 / Place 9 / …"]
-        T1b["关系表 KGREL 4917 条（当前 rel 仅「书载观点」，语义边待补）"]
-        T2["书级产物 · Book.extracts、merges.json、kg/dangling_edges.json"]
+        T1["Kuzu 图库 · app/data/kg/ · 3472 MB · ❌不入（构建产物）"]
+        T1a["节点表 Dynasty 84 / Event 54981 / Person 23879 / Place 9 / Book 19 / Source 68"]
+        T1b["关系表 KGREL 145626 条（书载观点 + 参与/触发/任职于 等语义边）"]
+        T2["书级产物 · data/ingest/&lt;id&gt;.json（大书提案真值源）、merges.json、kg/dangling_edges.json"]
         T1 --- T1a
         T1 --- T1b
     end
 
     subgraph SERVE["检索层 serving"]
-        V1["DuckDB · app/data/warehouse/ · 518.8 MB · ❌不入"]
+        V1["DuckDB · app/data/warehouse/ · 589 MB · ❌不入（11 张表，见 §10.2）"]
         V1a["entities（Kuzu 实体的投影副本，供时间窗 / 空间窗快查）"]
-        V1b["ingest_progress / book_runs（块级进度与书状态）"]
-        V1c["ingest_failures / book_run_params（失败台账、参数指纹）"]
+        V1b["chunks 36848（含 embedding）/ extract_raw 4344 / ingest_progress 4347 / book_runs 20"]
+        V1c["core_persons 535180 / core_places 122075 / core_anchors 12403（主干权威源，未进图）"]
         V2["RAG：retrieve_chunks = 向量检索 LocalEmbedder ONNX 512 维<br/>失败 / 无向量时回退 BM25"]
         V1 --- V1a
         V1 --- V1b
@@ -82,6 +106,53 @@ flowchart TB
     U1 --> U3
 ```
 
+### 1.1 分层与读写路径（谁写、谁读）
+
+```mermaid
+flowchart LR
+    subgraph OFF["离线进程（建议停服跑）"]
+        IG["scripts/ingest_one.py<br/>app/ingestion/bookrun.py:run_book"]
+        FC["scripts/fetch_core.py<br/>scripts/extract_core.py"]
+        BK["scripts/backup_data.py"]
+    end
+    subgraph ON["在线服务 uvicorn:8000"]
+        API["app/api/routes.py"]
+        ST["app/store.py:Store<br/>内存实体 + 差分落盘"]
+        GR["app/graph/nodes.py<br/>LangGraph 问答"]
+        AG["app/agents/runtime.py"]
+        MG["app/ingestion/mount.py<br/>挂载状态图"]
+    end
+    subgraph STO["存储（数据目录）"]
+        KZ[("Kuzu<br/>kg/kuzu_db")]
+        DK[("DuckDB<br/>warehouse/chronosino.duckdb")]
+        AR[("产物 JSON<br/>ingest/&lt;id&gt;.json")]
+        FS[("文件<br/>books/ tiles/ core/<br/>merges pending_ops action_log")]
+    end
+
+    FC -->|"normalized/*.jsonl"| FS
+    IG -->|"chunks + embedding"| DK
+    IG -->|"先落 raw 再记进度"| DK
+    IG -->|"收口 → proposals"| AR
+    BK -.->|"冷备份"| KZ
+    BK -.->|"冷备份"| DK
+
+    API --> ST
+    API -->|"/api/chat"| GR
+    API -->|"/api/mounts/*"| MG
+    MG -->|"interrupt 人工确认"| API
+    MG -->|"commit_book"| ST
+    ST -->|"差分写；每 2000 行重开连接"| KZ
+    ST -->|"实体投影副本（增量 upsert）"| DK
+    ST -->|"大书提案回落读取"| AR
+    GR -->|"retrieve_chunks 向量→BM25"| DK
+    GR -->|"接地校验"| FS
+    AG -->|"只读工具"| ST
+    AG -->|"写意图 → 确认卡"| FS
+    FS -->|"原文 / 瓦片"| API
+    KZ -->|"真值源"| API
+    DK -->|"时间窗 / 空间窗"| API
+```
+
 ### 入库 / 不入库总账
 
 | 类别 | 目录 | 体积 | 入库 | 重建代价 |
@@ -91,9 +162,10 @@ flowchart TB
 | 原始·模型 | `models/` | 94.8 MB | ✅ | 中 |
 | 原始·主干大件 | `app/data/core/raw/` | 857.8 MB | ❌（CBDB 单文件 837 MB > GitHub 100 MB 硬限） | 中：`fetch_core.py` 按 `manifest.json` 重下 |
 | 派生·主干精简 | `app/data/core/normalized/` | 87 MB | ✅ | 低：`extract_core.py` |
-| 构建·图库 | `app/data/kg/` | 658.7 MB | ❌ | 中高 |
-| 构建·数仓 | `app/data/warehouse/` | 518.8 MB | ❌ | **高**（`extract_raw` 是 LLM 调用结果） |
-| 过程产物 | `app/data/ingest/`、`library/` | 2 MB | ❌ | 低 |
+| 构建·图库 | `app/data/kg/` | 3472 MB | ❌ | 中高（可从数仓 `extract_raw` 重挂） |
+| 构建·数仓 | `app/data/warehouse/` | 589 MB | ❌ | **高**（`extract_raw` 是 LLM 调用结果） |
+| 过程产物·提案 | `app/data/ingest/` | 66.9 MB | ❌ | 低——**只要 `extract_raw` 还在**，收口即可重出；`extract_raw` 丢了才要重跑 LLM（贵） |
+| 过程产物 | `library/`、`merges.json`、`pending_ops.json` | <1 MB | ❌ | 低 |
 
 ---
 
@@ -118,17 +190,158 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 
 对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
-> 现状提醒：KGREL 里 4917 条边当前全是「书载观点」，本体语义边（发动/败于/建立/出使…共 82 条）尚未进图库，其中 29 条因种子用拼音 id（`xiangyu`）而库里节点是中文名 id（项羽）判为悬空。修复脚本 `scripts/rebuild_seed_edges.py`（干跑 → `--apply`）。
+> 现状提醒（已更新）：语义边已补齐——KGREL 共 **145626 条**，其中约 3.95 万是实体间语义边（参与 23025 / 触发 3176 / 任职于 1994 …），其余为「书载观点」。
+> 仍有 **29 条悬空边**（种子用拼音 id `xiangyu`，而库里节点是中文名 id `项羽`），记在 `kg/dangling_edges.json`，不影响查询。
+> link（书载观点对齐到主干实体）提案曾恒为 0：主干快照只有名字集合、缺「归一化名 → id」映射，`_resolve_target` 永远匹配不上。已修（`known_from_store` 补 `person_name_ids` / `event_name_ids`），《资治通鉴》link 提案 0 → 62120 条。
 
 ---
 
 ## 3. 构建路径 B：知识图谱（每本书叠加）
 
+### 3.1 单本构建流水线
+
+```mermaid
+flowchart TD
+    A["books/&lt;id&gt;.txt · 27 本原文"] --> B{"切块<br/>800 字 / 重叠 100 / 句末断句"}
+    B -->|"已有切块且非 force（幂等）"| B2["复用 warehouse.chunks"]
+    B -->|"首次 / force"| B1["切块 + LocalEmbedder 512 维<br/>→ warehouse.chunks"]
+    B1 --> C{"参数指纹 signature<br/>参数或书源变了？"}
+    B2 --> C
+    C -->|"变了"| C1["作废旧进度<br/>ingest_progress 全部失效"]
+    C -->|"没变"| D
+    C1 --> D["缺口计划 _plan()<br/>missing / no_raw / empty / fallback 四类"]
+    D --> E["逐块抽取 _run_pass()<br/>单组隔离重试，并发 N + 全局限速"]
+    E -->|"LLM 成功"| F["warehouse.extract_raw<br/>先落 raw 再记进度（最贵）"]
+    E -->|"失败 / 空"| G["ingest_failures<br/>error / empty / fallback 三类"]
+    E -->|"启发式兜底"| F
+    G --> H["--repair 多轮精准补齐"]
+    H --> E
+    F --> I["收口 finalize<br/>合并**全部已落盘** raw → proposals"]
+    I --> J{"产物保护 keep_best<br/>新提案数 &lt; 旧产物？"}
+    J -->|"是"| K["保留旧产物，不覆盖"]
+    J -->|"否"| L["写 ingest/&lt;id&gt;.json（20 本产物）"]
+    L --> M["挂到 Book.extracts<br/>到此为止，不挂载——挂载必须人工确认"]
+    M --> N["book_runs.stage = prepared"]
 ```
-书 txt → parse → chunk（800 字/重叠 100，句末断句）
-       → extract（LLM；失败静默回退启发式，记入 ingest_failures）
-       → normalize / align / score → proposals（提案）
-       → 人工 apply → mounts/start → mounts/commit（挂载进 Kuzu）
+
+### 3.2 单本构建的读写时序
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 运维 / 脚本
+    participant BR as bookrun.run_book
+    participant W as DuckDB 数仓
+    participant L as LLM（云端 / 本地）
+    participant A as 产物 JSON
+    U->>BR: ingest_one.py 书名 --llm --repair --max-rounds 3
+    BR->>W: 读 chunks（幂等复用或新切块 + embedding）
+    BR->>W: 比对 signature（参数 + 书源指纹）
+    alt 指纹变化
+        W-->>BR: 作废旧进度（块边界已变）
+    end
+    loop 每个缺口块
+        BR->>L: 抽取（并发，失败隔离重试）
+        alt 成功
+            L-->>BR: 结构化 JSON
+            BR->>W: INSERT extract_raw（先落 raw）
+            BR->>W: INSERT ingest_progress（再记进度）
+        else 失败 / 空 / 超时
+            L-->>BR: 错误
+            BR->>W: INSERT ingest_failures
+        end
+    end
+    BR->>W: 收口：读取**全部** raw（不按 limit 裁剪）
+    W-->>BR: raw 全量
+    BR->>BR: normalize / align / score → proposals
+    BR->>A: 写产物（keep_best 保护，小样本不冲掉完成态）
+    BR->>W: UPSERT book_runs / book_run_params
+    BR-->>U: 提案数 + coverage + 缺口清单（--strict 不完整退出码 2）
+```
+
+### 3.3 挂载：人工确认后才进图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant F as 前端 BookMount
+    participant R as /api 路由
+    participant G as 挂载状态图 mount.py
+    participant S as Store
+    participant K as Kuzu
+    participant W as DuckDB
+    F->>R: POST /api/ingest/{id}/apply
+    R->>S: book.extracts = 产物提案（已挂载则 409）
+    R->>S: store.save()
+    R-->>F: warnings（coverage 不足 / stage≠prepared）
+    F->>R: POST /api/mounts/start
+    R->>G: prepare：读提案 → awaiting_approval
+    G-->>F: 提案列表（interrupt 暂停，等人）
+    F->>F: 人工逐条勾选 → accepted 位图
+    F->>R: POST /api/mounts/commit（resume=accepted）
+    R->>G: commit
+    G->>S: store.commit_book(book, accepted)
+    loop 每条 accepted 提案
+        S->>S: G1 端点白名单 + G2 证据绑定
+        S->>K: 写节点 / 边（KGREL）
+    end
+    S->>K: 差分落盘（分批；每 2000 行重开连接）
+    S->>W: 同步实体副本（增量 upsert）
+    S-->>F: added{person,event,link,relation} + rel_failed
+```
+
+五道闸门在挂载与消费侧的位置：
+
+```mermaid
+flowchart LR
+    P["提案"] --> G1{"G1 模式白名单<br/>REL_PAIRS 端点组合"}
+    G1 -->|否| X["拒绝写边"]
+    G1 -->|是| G2{"G2 证据绑定<br/>实体/事件须挂 Source 引文"}
+    G2 -->|否| X
+    G2 -->|是| K[("Kuzu 图库")]
+    K --> G5{"G5 外部锚点<br/>external_ids 比对权威源"}
+    G5 -->|冲突| NR["needs_review 待人工"]
+    G5 -->|一致| OK["主干对齐"]
+    K --> G4["G4 分歧并列<br/>多书记载并存 + dispute，不覆盖"]
+    K --> G3{"G3 接地校验<br/>年份/专名须在原文出现"}
+    G3 -->|否| W["warnings 提示"]
+    G3 -->|是| ANS["/api/chat 回答 + evidence"]
+```
+
+### 3.4 卸载与重挂（唯一会造成不一致的路径）
+
+```mermaid
+flowchart TD
+    A["POST /api/mounts/unmount"] --> B{"已挂载？"}
+    B -->|否| Z1["无需卸载"]
+    B -->|是| C["_purge_book_disk(book_id)<br/>按 from_book 整批删 KGREL 与节点"]
+    C -->|失败| Z2["抛错停止：内存未被改动，可原样重试<br/>（先清磁盘、后改内存，不存在半成品）"]
+    C -->|成功| D["清 DuckDB 副本<br/>delete_entities（purge_buffer carry）"]
+    D --> E["改内存：移除实体，book.mounted=false"]
+    E --> F["_reset_kuzu_connection()<br/>批量删除会毒化连接"]
+    F --> G["save() 差分落盘"]
+    G --> H["验收：边数↓ / 副本清零 / 悬空边不增"]
+    H --> I["重挂：用原 accepted 位图 commit_book"]
+    I --> J["往返一致性核对"]
+```
+
+实测（《资治通鉴》，8.4 万边）：卸载 **90 秒**、重挂 **21 分钟**，进程存活；边 83947→32→83926，该书副本实体 44447→0→44447，悬空边恒为 29。
+
+### 3.5 Store.save 的写盘内部
+
+```mermaid
+flowchart TD
+    A["save()"] --> B["取出 _purge_buffer（卸载残留，diff 之外）"]
+    B --> C["_save_locked()：算 diff（新增 / 更新 / 删除）"]
+    C --> D{"diff 为空且无 carry？"}
+    D -->|是| Z["直接返回"]
+    D -->|否| E["Kuzu：按标签分批执行 CREATE / SET / DELETE"]
+    E --> F{"总行数 ≥ 4000？"}
+    F -->|"每写满 2000 行"| G["_reset_kuzu_connection()<br/>否则脏页不释放 → Unable to allocate memory"]
+    F -->|否| H["继续写"]
+    G --> H
+    H --> I["DuckDB：upsert_entities / delete_entities<br/>事务出错时 ROLLBACK 失败要吞掉，否则顶掉真因"]
+    I --> J["返回 _last_diff 供前端增量刷新"]
 ```
 
 - 离线（推荐，停服）：`python scripts/ingest_one.py <book> --llm --repair --max-rounds 3 --strict --retry-rounds N --reset-failed --no-store`
@@ -158,6 +371,23 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 | 检索 | `retrieve_chunks()`：向量 `vector_search()`（余弦）→ 无向量/异常回退 BM25 | `app/ingestion/rag.py:136/121/63` |
 | 接入问答 | `retrieve_node()` 把命中块转成 `Source` 证据；`verify/narrate/validate/review` 节点强制引用编号 `[n]` | `app/graph/nodes.py:43-162` |
 | 对外 | `/api/chat` 返回 `answer` + `evidence` + `grounding` + `warnings` | `app/api/routes.py:532-576` |
+
+### 4.1 检索与问答数据流
+
+```mermaid
+flowchart LR
+    Q["用户提问 /api/chat"] --> EMB["LocalEmbedder ONNX bge-small-zh-v1.5<br/>512 维，本地离线；云端兜底"]
+    EMB --> VS["chunks.embedding 向量检索<br/>余弦相似度 Top-K"]
+    VS -->|"命中"| R["命中 chunk"]
+    VS -->|"无向量 / 异常"| BM["BM25 回退<br/>tokenize + 打分"]
+    BM --> R
+    R --> RN["retrieve_node()<br/>转成 Source 证据，编号 [n]"]
+    RN --> LG["LangGraph 四节点<br/>verify → narrate → validate → review"]
+    LG --> GD{"G3 接地校验<br/>年份 / 专名必须在原文出现"}
+    GD -->|"不通过"| W["warnings + grounding.coverage 低"]
+    GD -->|"通过"| OUT["answer + evidence + grounding"]
+    W --> OUT
+```
 
 自检：`python scripts/selftest_ingest.py`（解析与 RAG 冒烟）。
 
@@ -217,6 +447,34 @@ python scripts/e2e_flow.py --book 资治通鉴 --chat     # 连对话与接地�
 - `pending_ops` = **Agent** 写操作的待审批确认卡
 - `actions` = UI 动作序列（可单步 undo）
 
+### 7.1 Agent 写操作的审批时序
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Agent（LLM）
+    participant R as runtime.run_agent
+    participant P as pending_ops.json
+    participant H as 人工
+    participant S as Store / Kuzu
+    participant L as action_log.json
+    A->>R: 输出【OPS】写意图
+    R->>R: _split_ops() 解析出操作
+    R->>P: 生成确认卡（不直接落地）
+    H->>R: POST /api/operations/{id}/confirm
+    R->>R: 复核：Agent 仍存在 / 当前授权 / 目标存在
+    alt 复核通过
+        R->>S: 执行 mount / unmount / delete
+        S-->>R: 结果
+        R->>L: 写 action_log（seq 递增）
+    else 复核失败
+        R-->>H: 拒绝（提示原因）
+    end
+    H->>R: POST /api/actions/{seq}/undo
+    R->>S: 执行逆动作 _undo_mount / _undo_unmount
+    R->>L: 记撤销
+```
+
 ---
 
 ## 8. 备份与恢复（保护「不入库但很贵」的数据）
@@ -227,6 +485,19 @@ python scripts/backup_data.py --list    # 列出现有备份（默认保留最�
 ```
 恢复：停服 → 用备份覆盖 `app/data/kg/`、`app/data/warehouse/` → 启服 → `e2e_flow.py` 验收。
 建议**停服后**备份（Kuzu/DuckDB 单写者，运行中复制可能拿到中间状态）。
+
+```mermaid
+flowchart LR
+    A["停服（必须）"] --> B["backup_data.py<br/>kg/ + warehouse/ + core 元数据"]
+    B --> C["_backup/&lt;时间戳&gt;/<br/>默认保留最近 3 份"]
+    C --> D{"需要恢复？"}
+    D -->|否| E["--list 查看备份清单"]
+    D -->|是| F["停服 → 覆盖 kg/ 与 warehouse/"]
+    F --> G["启服 → e2e_flow.py 验收"]
+    G --> H{"验收通过？"}
+    H -->|否| I["回滚到上一份备份"]
+    H -->|是| J["继续构建"]
+```
 
 ---
 
@@ -243,3 +514,150 @@ python scripts/backup_data.py --list    # 列出现有备份（默认保留最�
 | 接地校验 / 动作与撤销 | `backend/app/ontology/verify.py` / `actions.py` |
 | 主干抓取 / 派生 / 备份 | `backend/scripts/fetch_core.py` / `extract_core.py` / `backup_data.py` |
 | 端到端冒烟 / 语义边修复 | `backend/scripts/e2e_flow.py` / `rebuild_seed_edges.py` |
+
+---
+
+## 10. 数据字典（字段级）
+
+> 行数实测于当前实例 `C:\agent-history-data`；**行数随构建变化，结构稳定**。
+> 想自己复核：`backend/scripts/_snap_size.py`（体积）、`_check_update_params.py`（写入语句参数一致性）。
+
+### 10.1 Kuzu 图库（真值层，`kg/kuzu_db`）
+
+| 表 | 行数 | 关键列 | 用途 |
+|---|---|---|---|
+| `Dynasty` | 84 | `id, name, span_s, span_e, color, cap_name, cap_lon, cap_lat, map_tile, grp, lane, emperors` | 朝代：起止年、都城经纬度、时间轴车道 |
+| `Event` | 54981 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
+| `Person` | 23879 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
+| `Place` | 9 | `id, name, ancient, modern, lon, lat, aliases` | 地名（**图内仅 9 条**；12.2 万条权威地名在数仓 `core_places`） |
+| `Book` | 19 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
+| `Source` | 68 | `sid, owner, level, work, text, translation, confidence, from_book` | 引文：`owner` 指回宿主实体 id |
+| `Institution` | 4 | `id, name, kind, function, dynasty_id, span_s, span_e, aliases` | 官制/机构 |
+| `Artifact` | 3 | `id, name, kind, material, era_text, year, date_conf, place_id, museum` | 文物 |
+| `Concept` | 4 | `id, name, kind, definition, dynasty_id, origin_year, aliases` | 制度/观念 |
+| `KGREL`（关系） | 145626 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`） |
+
+- **关系名目录 24 种**：`app/schema/ontology.py:241` `REL_TYPES`——参与、任职于、师承、发生于、触发、奠定、书载观点、继承自、包含、隶属、设于、下辖、出土于、年代属、铭文录为、提及、创立、推行、盛行于、从属。
+- **端点白名单**：同文件 `REL_PAIRS`（写边硬闸门 G1）。
+- **JSON 列（以字符串存储）**：`span, tags, years, aliases, actors, route, book_sources, external_ids, extracts, accepted, emperors`。
+- **列命名惯例**：`ca`=created_at、`ua`=updated_at、`version`=乐观锁、`provenance`=来源（seed/book）、`external_ids`=外部锚点 JSON（wikidata/cbdb/chgis/tgn/geonames）、`n_student/n_scholar/n_fan`=三种叙述口径。
+- **`Book.extracts` 已不内联大书**：提案 >300 条时该列写 `[]`，真值源是 `data/ingest/<id>.json`，读取时回落（`store._artifact_proposals`）。原因：单本曾达 26 MB，Kuzu 扫描要整页 pin 住 → `buffer pool is full`，且写一半被强杀会留下坏 JSON 让服务起不来。
+
+**图模式（边名即 `KGREL.rel`，端点即 `FROM/TO` 表）**：
+
+```mermaid
+flowchart TB
+    B["Book 19"] -->|"书载观点"| EV["Event 54981"]
+    B -->|"书载观点"| PE["Person 23879"]
+    B -->|"提及"| INS["Institution 4"]
+    B -->|"提及"| ART["Artifact 3"]
+    B -->|"提及"| CON["Concept 4"]
+    PE -->|"参与"| EV
+    PE -->|"任职于"| INS
+    PE -->|"师承"| PE
+    PE -->|"创立"| CON
+    EV -->|"触发 / 包含"| EV
+    EV -->|"发生于"| PL["Place 9"]
+    EV -->|"奠定"| DY["Dynasty 84"]
+    EV -->|"推行"| CON
+    DY -->|"继承自"| DY
+    INS -->|"隶属 / 设于 / 下辖"| INS
+    ART -->|"出土于"| PL
+    ART -->|"年代属"| DY
+    ART -->|"铭文录为"| SR["Source 68"]
+    CON -->|"从属"| CON
+    CON -->|"盛行于"| DY
+    EV -.->|"book_sources 引文"| SR
+    PE -.->|"book_sources 引文"| SR
+```
+
+> 注：图内 `Place` 仅 9 条（主干 CHGIS 的 12.2 万地名在数仓 `core_places`，尚未导入图库）。
+
+### 10.2 DuckDB 数仓（检索与台账层，`warehouse/chronosino.duckdb`）
+
+| 表 | 行数 | 列 | 用途 |
+|---|---|---|---|
+| `chunks` | 36848 | `book_id, idx, text, char_start, char_end, token_count, embedding` | 原文切块（800 字/重叠 100）+ 512 维向量，RAG 检索 |
+| `extract_raw` | 4344 | `book_id, piece_idx, model, payload, ts` | **LLM 原始返回，最贵**，产物可由此重出 |
+| `ingest_progress` | 4347 | `book_id, piece_idx, model, n_persons, n_events, n_links, ts` | 块级进度（断点续跑依据） |
+| `ingest_failures` | 411 | `book_id, piece_idx, model, kind, error, attempt, ts` | 失败台账（error/empty/fallback 三类） |
+| `book_runs` | 20 | `book_id, stage, chunks, pieces, done, model, mode, proposals, mounted, updated` | 书级状态 |
+| `book_run_params` | 19 | `book_id, signature, params, updated` | 参数指纹（改参数自动作废旧进度） |
+| `core_persons` | 535180 | `id, name, year_birth, year_death, index_year, dynasty, female, external_ids` | 主干权威源（CBDB），**未进图** |
+| `core_places` | 122075 | `id, name, modern, pinyin, kind, year_beg, year_end, external_ids` | 主干权威源（CHGIS），**未进图** |
+| `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
+| `entities` | 0* | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；服务启动与挂载后按差异同步（实测单本 44447 行），*当前服务未跑完同步故为空，起服即重灌 |
+| `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
+
+### 10.3 跨库关联键
+
+```mermaid
+flowchart LR
+    subgraph KZ["Kuzu 真值层"]
+        DY["Dynasty.id"]
+        EV["Event.dynasty_id"]
+        PE["Person.dynasty_id"]
+        BK["Book.dynasty_id"]
+        SR["Source.sid"]
+        RE["KGREL<br/>rel / from_book / confidence / src_ids"]
+    end
+    subgraph DK["DuckDB 检索与台账层"]
+        CH["chunks.book_id"]
+        ER["extract_raw.book_id"]
+        IP["ingest_progress.book_id"]
+        IF["ingest_failures.book_id"]
+        RUN["book_runs.book_id"]
+        PRM["book_run_params.book_id"]
+        EN["entities.entity_id"]
+        CA["core_anchors.external_ids"]
+        CP["core_persons / core_places"]
+    end
+
+    EV --> DY
+    PE --> DY
+    BK --> DY
+    RE -->|"from_book"| BK
+    RE -->|"src_ids → 证据"| SR
+    SR -->|"owner → 宿主节点"| EV
+    CH --> BK
+    ER --> BK
+    IP --> BK
+    IF --> BK
+    RUN --> BK
+    PRM --> BK
+    EN -.->|"投影副本（可按书精确删）"| EV
+    EN -.->|"投影副本"| PE
+    CA -.->|"external_ids.wikidata / cbdb"| PE
+    CP -.->|"主干待导入（未进图）"| DY
+```
+
+文字版：
+
+- **图内**：`Event/Person/Book.dynasty_id → Dynasty.id`；`Source.owner → 宿主节点 id`；节点 `book_sources(JSON)[].sid → Source.sid`（G2）；`KGREL.from_book → Book.id`、`KGREL.src_ids → Source.sid[]`。
+- **跨库**：`chunks / extract_raw / ingest_progress / ingest_failures / book_runs / book_run_params.book_id → Book.id`；`entities.entity_id → Kuzu 节点 id`（副本，可按书精确删）；节点 `external_ids.wikidata/cbdb → core_anchors.external_ids`。
+- **主干**：`core_persons`（53.5 万）、`core_places`（12.2 万）已进数仓，**尚未导入图库**（图内 Place 仅 9 条）。
+
+### 10.4 目录与散落文件用途
+
+| 路径 | 用途 |
+|---|---|
+| `books/*.txt` + `books_manifest.json` | 27 本原文；manifest 是**书籍注册表**（id → file/title/author/span/tags/level） |
+| `ingest/<id>.json` | 20 本**提案产物**，大书提案的真值源（挂载时读取） |
+| `kg/kuzu_db` + `kg/dangling_edges.json` | 图库本体 + 29 条端点缺失的边 |
+| `warehouse/chronosino.duckdb` | 数仓（§10.2） |
+| `tiles/**` | 18.1 万张本地地图瓦片（离线底图） |
+| `core/raw/**` + `core/normalized/*.jsonl` | 主干权威源原始件与精简表（raw 不入版本库，脚本可重下） |
+| `merges.json` / `pending_ops.json` / `action_log.json` / `agents.json` | 实体合并记录 / Agent 待审批确认卡 / 动作日志（可 undo）/ Agent 注册表 |
+| `emperors.json` / `maps.json` / `ontology_extra.json` / `seed.py` | 帝王表 / 底图配置 / 本体扩展 / 种子数据 |
+| `_wmts_*.xml|json`、`_hm_*.html|json` | 瓦片服务能力与朝代页面的抓取缓存 |
+
+### 10.5 构建现状快照
+
+| 口径 | 数量 | 说明 |
+|---|---|---|
+| 原文 | 27 本 | `books/` |
+| 提案产物 | 20 本 | `ingest/` |
+| Book 节点 | 19 本 | 图库已登记 |
+| **已挂载** | **15 本** | 史记、资治通鉴、三国志、北齐书、陈书、周书、梁书、史通、南史、南齐书、北史、新五代史、辽史、宋书、隋书 |
+| 产物已出、未挂载 | 5 本 | 后汉书、旧五代史、新唐书、读通鉴论、汉书（产物不完整，将重跑） |
+| 未构建 | 7 本 | 金史、晋书、旧唐书、明史、宋史、魏书、元史 |

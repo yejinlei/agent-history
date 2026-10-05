@@ -12,11 +12,20 @@
     python scripts/_build_all.py --no-mount      # 只构建不挂载（先攒提案）
 """
 import json
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import quote
+
+# 日志里有中文书名，重定向到文件时默认编码可能是 ascii，一打印就崩
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(_BACKEND_DIR) not in sys.path:      # 允许从任意目录直接跑
@@ -42,6 +51,47 @@ def free_mb_of(path: str) -> float:
     return shutil.disk_usage(path).free / 1024 / 1024
 
 
+RESTART_RSS_MB = 9000      # 服务端 RSS 超过此值就重启：Kuzu 缓冲池 + 内存实体
+                           # 逐本累加，实测会被原生层静默杀死（无堆栈、无异常）
+
+
+def server_rss_mb() -> int:
+    """取服务端进程内存（本机同一台机器，用 CIM 查命令行含 serve.py 的进程）。"""
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+          "Where-Object { $_.CommandLine -like '*serve.py*' } | "
+          "ForEach-Object { [math]::Round($_.WorkingSetSize/1MB) }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, timeout=60)
+        vals = [int(x) for x in out.stdout.split() if x.isdigit()]
+        return max(vals) if vals else 0
+    except Exception:
+        return 0
+
+
+def restart_server() -> bool:
+    """重启服务端：躲开「跑几本后进程被静默杀死」的问题。"""
+    print("  重启服务端…", flush=True)
+    subprocess.run(
+        ["powershell", "-NoProfile", "-Command",
+         "$p=(Get-NetTCPConnection -LocalPort 8000 -State Listen "
+         "-ErrorAction SilentlyContinue).OwningProcess; "
+         "if($p){Stop-Process -Id $p -Force}"], timeout=120)
+    time.sleep(5)
+    subprocess.Popen([sys.executable, "-u", "scripts/serve.py"],
+                     cwd=str(_BACKEND_DIR))
+    for _ in range(100):                      # 载入 Store 约 10 分钟
+        time.sleep(30)
+        try:
+            _req("/api/health", timeout=30)
+            print("  服务端已就绪", flush=True)
+            return True
+        except Exception:
+            continue
+    print("  [失败] 服务端重启超时", flush=True)
+    return False
+
+
 def wait_idle(timeout: int = 7200) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -53,7 +103,9 @@ def wait_idle(timeout: int = 7200) -> bool:
 
 
 def build(bid: str) -> bool:
-    _req(f"/api/ingest/{bid}", {"use_llm": True, "concurrency": CONCURRENCY,
+    # 书号可能是中文（《史通》《读通鉴论》），直接拼进 URL 会被 http.client
+    # 按 ascii 编码而崩，必须转义
+    _req(f"/api/ingest/{quote(bid, safe='')}", {"use_llm": True, "concurrency": CONCURRENCY,
                                 "repair": True, "max_rounds": 2,
                                 "keep_best": False}, timeout=120)
     t0 = time.time()
@@ -122,19 +174,29 @@ def main() -> None:
             return
         print(f"=== [{i}/{len(todo)}] 《{b['title']}》( {b['id']} ) "
               f"盘余 {free:.0f} MB ===", flush=True)
-        wait_idle()
         t0 = time.time()
-        if not build(b["id"]):
-            continue
-        if no_mount:
-            continue
         try:
+            wait_idle()
+            if not build(b["id"]):
+                continue
+            if no_mount:
+                continue
             res = mount(b["id"])
             print(f"  挂载结果 {json.dumps(res, ensure_ascii=False)[:300]}",
                   flush=True)
         except urllib.error.HTTPError as e:
-            print(f"  [挂载失败] {e.code} {e.read()[:200]}", flush=True)
+            print(f"  [失败] HTTP {e.code} {e.read()[:200]}", flush=True)
+            continue
+        except Exception as e:      # 服务端被原生层静默杀死时是连接错误，不是 HTTP 错误
+            print(f"  [连接中断] {type(e).__name__}: {e}", flush=True)
+            if not restart_server():
+                print("[中止] 服务拉不起来，停止批量构建", flush=True)
+                return
         print(f"  本本耗时 {(time.time() - t0) / 60:.1f}min", flush=True)
+        rss = server_rss_mb()
+        print(f"  服务端内存 {rss} MB", flush=True)
+        if rss > RESTART_RSS_MB and not restart_server():
+            return
 
 
 if __name__ == "__main__":
