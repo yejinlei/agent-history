@@ -161,6 +161,22 @@ def _strip_node(d: dict) -> dict:
     return d
 
 
+def _loads_or(s: str | None, default):
+    """json.loads 的容错版：解析不出来就返回默认值。
+
+    Kuzu 没有显式事务，进程被杀/写崩时某一列可能留下半截字符串；这类坏数据
+    不该把整个服务拖得起不来（实测：一本的 extracts 写坏 → 服务启动即崩，
+    全套接口全挂）。丢一份可重算的提案，远比全站不可用划算。
+    """
+    if not s:
+        return default
+    try:
+        return json.loads(s)
+    except Exception:
+        print(f"[warn] 坏 JSON 已按默认值处理（长度 {len(s)}）", flush=True)
+        return default
+
+
 class Store:
     def __init__(self) -> None:
         self.dynasties: list[Dynasty] = []
@@ -524,7 +540,7 @@ class Store:
         for plan in node_plans:
             self._run_batch(plan["del_sql"], plan["del_params"])
         for plan in node_plans:
-            self._run_batch(plan["create_sql"], plan["write_rows"])
+            self._write_nodes(plan)
         for plan in node_plans:
             self._run_batch(plan["update_sql"], plan["upd_rows"])
         for plan in edge_plans:
@@ -534,6 +550,32 @@ class Store:
         stats["KGREL"] = tuple(sum(p["stats"][i] for p in edge_plans)
                                for i in range(3))
         return stats
+
+    def _write_nodes(self, plan: dict) -> None:
+        """写新节点；撞主键时改走原地 SET，而不是让整次 save 失败。
+
+        Kuzu 0.11 没有显式事务，一次中断（缓冲池满、进程被杀）会在磁盘留下
+        半截数据；下一次 save 对同一批行再 CREATE 就会
+        `Found duplicated primary key`，于是**每一本后续的书都被这个残行卡死**
+        （实测《读通鉴论》写一半失败后，新唐书、旧五代史接连报同一个主键）。
+        撞主键说明行已在盘上，语义上等价于覆盖，改写成 SET 即可自愈。
+        """
+        try:
+            self._run_batch(plan["create_sql"], plan["write_rows"])
+        except Exception as exc:
+            if "duplicated primary key" not in str(exc).lower():
+                raise
+            key_field = plan.get("key_field") or (
+                "sid" if plan["label"] == "Source" else "id")
+            print(f"[warn] {plan['label']} 撞主键（上次写了半截），"
+                  f"改为原地更新 {len(plan['write_rows'])} 行", flush=True)
+            for row in plan["write_rows"]:
+                upd = {k: v for k, v in row.items() if k != key_field}
+                upd["k"] = row[key_field]
+                try:
+                    self._x(plan["update_sql"], upd)
+                except Exception:
+                    continue          # 单行失败不影响其余行，下次 save 会重算
 
     def _reset_kuzu_connection(self) -> None:
         """丢弃并重开 Kuzu 连接——批量删除之后的必要动作。
@@ -774,6 +816,12 @@ class Store:
         (node_plans, edge_plans, snap_n, snap_e, by_book,
          dangling) = self._collect_plans()
         stats = self._apply_plans(node_plans, edge_plans)
+        # 大批量写入之后重开连接：写过上万条边的那条连接会被「毒化」，紧接着
+        # 再扫一次 KGREL 表就会把整个进程打死（无异常、无堆栈，原生层直接终止）。
+        # 批量构建时每本书收尾都要 save() 一遍存提案，等于挂载后紧接着全图扫描
+        # ——实测必崩，所以这里和卸载一样重开连接。
+        if stats.get("KGREL", (0, 0, 0))[0] >= 500:
+            self._reset_kuzu_connection()
         # 全部写成功后才推进快照：中途抛异常时快照保持不变，下一次能重算同样的差异
         self._kz_snap, self._kz_edge_snap, self._kz_node_book = (
             snap_n, snap_e, by_book)
@@ -1033,12 +1081,17 @@ class Store:
         self.books = [Book(
             id=d["id"], title=d["title"], author=d["author"], year=d["year"],
             level=d["level"], color=d["color"], dynasty_id=d["dynasty_id"],
-            span=tuple(json.loads(d["span"])), tags=json.loads(d["tags"]),
+            span=tuple(_loads_or(d["span"], [0, 0])),
+            tags=_loads_or(d["tags"], []),
             description=d["descr"],
-            extracts=[Extract.model_validate(x) for x in json.loads(d["extracts"])],
+            # 进程被强杀时，正在写的这一列可能留下半截 JSON。以前直接 json.loads
+            # 会让**整个服务起不来**（不是少一本的数据问题，是全套接口都挂）。
+            # 坏数据按空处理：提案随时能重算，服务可用优先。
+            extracts=[Extract.model_validate(x)
+                      for x in _loads_or(d["extracts"], [])],
             mounted=bool(d["mounted"]),
             origin=d.get("origin") or "builtin", file=d.get("file"),
-            accepted=json.loads(d.get("accepted") or "null"),
+            accepted=_loads_or(d.get("accepted") or "null", None),
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Book")]
