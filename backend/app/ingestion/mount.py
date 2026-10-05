@@ -50,6 +50,7 @@ def _prepare(state: MountState):
             "confidence": x.confidence,
             "new_id": x.new_id,
             "target_id": x.target_id,
+            "rel": x.rel,
             "default_accepted": x.confidence >= 0.4,
         }
         for x in book.extracts

@@ -143,12 +143,15 @@ class Source(BaseModel):
 
 class Extract(BaseModel):
     """新书提炼产物（挂载提案的一项）"""
-    kind: Literal["person", "event", "link"]
+    # relation：LLM 抽出的实体间关系（参与/触发/任职于…），挂载时落成真正的
+    # KGREL 边；没有这一项，图谱里就只剩「书→节点」的书载观点边，成星形图
+    kind: Literal["person", "event", "link", "relation"]
     name: str
     summary: str
     confidence: float
-    new_id: Optional[str] = None  # person/event：新建实体 id
-    target_id: Optional[str] = None  # link：对齐到主干事件
+    new_id: Optional[str] = None  # person/event：新建实体 id；relation：源端 id
+    target_id: Optional[str] = None  # link：对齐到主干实体；relation：目标端 id
+    rel: Optional[str] = None    # relation：关系名（如 参与 / 触发 / 任职于）
     years: Optional[str] = None
     year: Optional[int] = None
     lon: Optional[float] = None

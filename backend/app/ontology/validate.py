@@ -26,6 +26,9 @@ _KIND2CLS = {
     "artifact": "Artifact", "concept": "Concept", "book": "Book",
 }
 
+# 不是节点、而是「边」的提案类型（见 data_graph_from_proposals）
+_EDGE_KINDS = {"link", "relation"}
+
 
 def _dump(p) -> dict:
     if isinstance(p, dict):
@@ -60,13 +63,37 @@ def data_graph_from_proposals(proposals: list) -> Graph:
     """提案列表 → RDF 数据图（校验 G2 证据、名称、锚点命名空间）。"""
     g = Graph()
     g.bind("ex", EX)
+    # 节点在数据图里按 name 标识（历史约定），关系边却用 new_id / target_id。
+    # 两套 id 必须先对齐，否则三元组会指向一个没有 rdf:type 的 URI，SHACL 会把
+    # 这批新关系整批判成违规（实测 584972 处，全是这个错配）。
+    oid_of_newid: dict[str, str] = {}
+    edges: list[tuple[str, dict]] = []
     for p in proposals:
         d = _dump(p)
-        cls = _KIND2CLS.get(str(d.get("kind") or d.get("type") or "")
-                            .lower(), "Concept")
+        kind = str(d.get("kind") or d.get("type") or "").lower()
+        if kind in _EDGE_KINDS:
+            # 关系类提案不是节点：link=把史料挂到主干实体，relation=实体间语义边。
+            # 早期把它们当成 Concept 节点塞进数据图，等于拿边冒充实体去做体检。
+            edges.append((kind, d))
+            continue
+        cls = _KIND2CLS.get(kind, "Concept")
         oid = str(d.get("oid") or d.get("id") or d.get("name") or "")
         if oid:
             _add_node(g, oid, cls, d)
+            nid = d.get("new_id")
+            if nid:
+                oid_of_newid[str(nid)] = oid
+    for kind, d in edges:
+        if kind != "relation":
+            continue
+        src, dst = str(d.get("new_id") or ""), str(d.get("target_id") or "")
+        # 只体检两端都在这批提案里的关系：指向外部实体的本来就落成不了边，
+        # 放进来只会制造噪音
+        if src not in oid_of_newid or dst not in oid_of_newid:
+            continue
+        g.add((URIRef(EX[Q(oid_of_newid[src])]),
+               URIRef(EX[Q(str(d.get("rel") or "related"))]),
+               URIRef(EX[Q(oid_of_newid[dst])])))
     return g
 
 

@@ -101,13 +101,16 @@ export type EntityDetail =
   | (PersonItem & { kind: "person"; narrative: Narrative; edges?: OntoEdgeBrief[] })
   | (PlaceItem & { kind: "place"; narrative: Narrative; edges?: OntoEdgeBrief[] });
 
+export type ExtractKind = "person" | "event" | "link" | "relation";
+
 export interface Extract {
-  kind: "person" | "event" | "link";
+  kind: ExtractKind;
   name: string;
   summary: string;
   confidence: number;
   new_id?: string;
   target_id?: string;
+  rel?: string;
   years?: string;
   year?: number;
   lon?: number;
@@ -135,12 +138,13 @@ export interface Book {
 }
 
 export interface Proposal {
-  kind: "person" | "event" | "link";
+  kind: ExtractKind;
   name: string;
   summary: string;
   confidence: number;
   new_id?: string;
   target_id?: string;
+  rel?: string;
   default_accepted: boolean;
 }
 

@@ -82,6 +82,8 @@ class RunOptions:
     # 1w 上限基本不会截断（改这个值不用重跑，用 --finalize-only 重算即可）
     max_persons: int = 10000
     max_events: int = 10000
+    # 关系提案上限：0 = 不限；设为正整数则按置信度取 Top
+    max_relations: int = 0
     min_confidence: float = 0.0
     out: str | None = None         # 产物 JSON；默认 data/ingest/<book_id>.json
 
@@ -165,6 +167,7 @@ def _build_opts(o: RunOptions, bid: str = "") -> BuildOptions:
         chunk_size=o.chunk_size, chunk_overlap=o.chunk_overlap,
         extract_size=o.extract_size, extract_overlap=o.extract_overlap,
         max_persons=o.max_persons, max_events=o.max_events,
+        max_relations=o.max_relations,
         min_confidence=o.min_confidence, align_mode=o.align_mode,
         person_id_mode="normalize", id_prefix=bid,
     )

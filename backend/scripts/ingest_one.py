@@ -85,6 +85,8 @@ def main() -> None:
                     help="只重算提案：复用已落盘的抽取结果，不调 LLM（改 TopN/阈值用）")
     ap.add_argument("--max-persons", type=int, default=10000)
     ap.add_argument("--max-events", type=int, default=10000)
+    ap.add_argument("--max-relations", type=int, default=0,
+                    help="关系提案上限（按置信度取 Top，0=不限）")
     ap.add_argument("--min-confidence", type=float, default=0.0,
                     help="提案置信度下限（配合 --finalize-only 可零成本调阈值）")
     ap.add_argument("--retry-rounds", type=int, default=1,
@@ -143,6 +145,7 @@ def main() -> None:
                       finalize_only=args.finalize_only,
                       max_persons=args.max_persons,
                       max_events=args.max_events,
+                      max_relations=args.max_relations,
                       min_confidence=args.min_confidence,
                       retries=max(1, args.retries),
                       retry_empty=not args.no_retry_empty,

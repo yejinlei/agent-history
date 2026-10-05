@@ -641,8 +641,15 @@ class Store:
         失败不影响主流程——数仓只是查询副本，丢失可 full=True 重建。
         """
         try:
+            rows_all = self._entity_rows() if full else []
             if full:
-                return warehouse.replace_entities(self._entity_rows())
+                # 图里有实体却算出空行（说明还没载入完成），就不要往下做：
+                # 此时重灌只会把副本擦干净，比不同步更糟。
+                if not rows_all and (self.events or self.people):
+                    print("[warn] 实体副本全量重灌被跳过：图库有实体但 _entity_rows() 为空",
+                          flush=True)
+                    return 0
+                return warehouse.replace_entities(rows_all)
             diff = (self._last_diff or {}).get("nodes") or {}
             changed, removed = diff.get("changed") or [], diff.get("removed") or []
             if not changed and not removed:
@@ -1323,7 +1330,8 @@ class Store:
             return self._commit_locked(book, accepted, persist=persist)
 
     def _commit_locked(self, book: Book, accepted: list[bool], *, persist: bool = True) -> dict:
-        added = {"person": 0, "event": 0, "link": 0}
+        added = {"person": 0, "event": 0, "link": 0, "relation": 0}
+        rel_failed = 0
         if len(accepted) != len(book.extracts):
             raise ValueError("accepted 位图长度须与提案数一致")
         for ext, ok in zip(book.extracts, accepted):
@@ -1376,6 +1384,17 @@ class Store:
                     added["link"] += 1
                 else:
                     node_id = None  # 目标缺失：不造悬空边
+            elif ext.kind == "relation":
+                # 实体间语义边：这是「谁参与了哪件事」的答案来源。端点在本次
+                # 挂载里刚建出来（也可挂到主干），缺任一端就跳过，不造悬空边。
+                node_id = None
+                try:
+                    self.add_edge(ext.new_id, ext.target_id, ext.rel or "相关",
+                                  confidence=ext.confidence, src_ids=[book.id],
+                                  from_book=book.id)
+                    added["relation"] += 1
+                except Exception:      # 端点不存在 / 组合不在 REL_PAIRS 目录内
+                    rel_failed += 1
             # 知识图谱增量边：书 → 节点（走 add_edge：端点存在 + REL_PAIRS 校验）
             if node_id:
                 self.add_edge(book.id, node_id, "书载观点",
@@ -1391,6 +1410,8 @@ class Store:
         book.accepted = list(accepted)
         if persist:
             self.save()
+        if rel_failed:
+            added["relation_skipped"] = rel_failed
         return added
 
     def uncommit_book(self, book: Book) -> dict:

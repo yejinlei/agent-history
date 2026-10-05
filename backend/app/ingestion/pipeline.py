@@ -51,6 +51,9 @@ class BuildOptions:
     # 单本书提案上限（按 confidence 排序取 Top，避免图谱无限膨胀）
     max_persons: int = 200
     max_events: int = 300
+    # 关系提案上限（按 confidence 排序取 Top）。0 = 不限
+    # 关系两端必须挂得上实体，所以上限只在前量为万级时才有意义
+    max_relations: int = 0
     # 低于该置信度的候选不生成提案
     min_confidence: float = 0.0
     # 已知人物的处理策略：
@@ -333,11 +336,22 @@ def _resolve_target(resolver, known: dict, name: str, kind: str) -> str | None:
     return None
 
 
+def _endpoint_id(name: str, *, local: dict, known: dict, resolver) -> str | None:
+    """关系端点的实体 id：先用本次新建的实体，退回去找主干。"""
+    key = normalize_name(name)
+    if key in local:
+        return local[key]
+    return _resolve_target(resolver, known, name, "event") \
+        or _resolve_target(resolver, known, name, "person")
+
+
 def _to_proposals(persons: Iterable[dict], events: Iterable[dict],
                   links: Iterable[dict], *, known: dict, resolver,
                   opts: BuildOptions) -> list[Extract]:
     out: list[Extract] = []
     prefix = opts.id_prefix
+    # 本次会建出来的实体：归一化名 → id，供后面的关系解析端点用
+    local: dict[str, str] = {}
 
     for i, p in enumerate(persons):
         conf = float(p["confidence"])
@@ -358,6 +372,7 @@ def _to_proposals(persons: Iterable[dict], events: Iterable[dict],
                     confidence=max(conf, 0.6), target_id=tid))
             continue
         new_id = key if opts.person_id_mode == "normalize" else f"{prefix}_p{i}"
+        local.setdefault(key, new_id)
         out.append(Extract(
             kind="person", name=p["name"], summary=p["summary"][:220],
             confidence=conf, new_id=new_id))
@@ -366,9 +381,11 @@ def _to_proposals(persons: Iterable[dict], events: Iterable[dict],
         conf = float(e["confidence"])
         if conf < opts.min_confidence:
             continue
+        new_id = f"{prefix}_e{i}" if prefix else f"e{i}"
+        local.setdefault(normalize_name(e["name"]), new_id)
         out.append(Extract(
             kind="event", name=e["name"], summary=e["summary"][:240],
-            confidence=conf, new_id=f"{prefix}_e{i}" if prefix else f"e{i}",
+            confidence=conf, new_id=new_id,
             year=e.get("year"), lon=e.get("lon"), lat=e.get("lat"),
             place=e.get("place")))
 
@@ -385,4 +402,35 @@ def _to_proposals(persons: Iterable[dict], events: Iterable[dict],
             kind="link", name=lk.get("src") or dst,
             summary=lk.get("rel") or "书内观点挂载到主干实体",
             confidence=float(lk.get("confidence") or 0.5), target_id=tid))
+
+    # 关系：**两端都落得到实体**才建边。少了这一步，图谱里就只有「书→节点」
+    # 的书载观点边（实测 48673 条边里 48620 条），实体之间连不起来——
+    # 拿到 3 万事件却答不了「谁参与了哪件事」。
+    # 端点缺一个就丢弃（TopN 截断的对象、句读碎片都不配进入图）。
+    rels: list[tuple[float, str, str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for lk in links:
+        rel = (lk.get("rel") or "").strip()
+        src_name = (lk.get("src") or "").strip()
+        dst_name = (lk.get("dst") or "").strip()
+        if not rel or not src_name or not dst_name:
+            continue
+        sid = _endpoint_id(src_name, local=local, known=known, resolver=resolver)
+        did = _endpoint_id(dst_name, local=local, known=known, resolver=resolver)
+        if not sid or not did or sid == did:
+            continue
+        key = (sid, did, rel)
+        if key in seen:
+            continue
+        seen.add(key)
+        rels.append((float(lk.get("confidence") or 0.5), sid, did, rel,
+                     f"{src_name} —{rel}→ {dst_name}"))
+    rels.sort(key=lambda x: -x[0])          # 置信度高的先入图
+    cap = getattr(opts, "max_relations", 0) or 0
+    if cap > 0:
+        rels = rels[:cap]
+    for conf, sid, did, rel, label in rels:
+        out.append(Extract(
+            kind="relation", name=label, summary=f"关系 {rel}",
+            confidence=conf, new_id=sid, target_id=did, rel=rel))
     return out

@@ -11,6 +11,10 @@ interface Props {
   onView: (book: Book) => void;
 }
 
+// 提案动辄上万条（含关系时达 8 万），整表渲染会卡死浏览器；
+// 只渲染前若干条供抽查，勾选位图仍按全量提交
+const PREVIEW_LIMIT = 300;
+
 interface UIState {
   phase: "running" | "proposal";
   stage: number;
@@ -247,7 +251,13 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
                 {st && st.phase === "proposal" && (
                   <>
                     {st.error && <div className="dispute">{st.error}</div>}
-                    {st.proposals.map((p, i) => (
+                    {st.proposals.length > PREVIEW_LIMIT && (
+                      <div className="pdesc" style={{ marginBottom: 6 }}>
+                        共 {st.proposals.length} 项提案，默认已勾选置信度 ≥40% 的项；
+                        下方仅预览前 {PREVIEW_LIMIT} 项供抽查，确认挂载仍按全部 {st.proposals.length} 项提交。
+                      </div>
+                    )}
+                    {st.proposals.slice(0, PREVIEW_LIMIT).map((p, i) => (
                       <div key={i} className={`prop ${p.confidence < 0.5 ? "low" : ""}`}>
                         <input type="checkbox" checked={st.accepted[i]} onChange={() => toggle(b.id, i)} />
                         <span
@@ -255,16 +265,21 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
                           style={{
                             background:
                               p.kind === "person" ? "var(--gold)"
-                              : p.kind === "event" ? "var(--brand)" : "var(--purple)",
+                              : p.kind === "event" ? "var(--brand)"
+                              : p.kind === "relation" ? "#0e7490" : "var(--purple)",
                           }}
                         >
-                          {p.kind === "person" ? "人" : p.kind === "event" ? "事" : "挂"}
+                          {p.kind === "person" ? "人"
+                            : p.kind === "event" ? "事"
+                            : p.kind === "relation" ? "关" : "挂"}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="pname">{p.name}</div>
+                          <div className="pname">{p.kind === "relation" ? `${p.rel ?? "相关"}：${p.name}` : p.name}</div>
                           <div className="pdesc">{p.summary}</div>
                           <div className="pmeta">
-                            {p.kind === "link" ? "对齐到主干实体" : `新建实体（${p.kind === "person" ? "人物" : "事件"}）`}
+                            {p.kind === "link" ? "对齐到主干实体"
+                              : p.kind === "relation" ? "建立实体间关系边"
+                              : `新建实体（${p.kind === "person" ? "人物" : "事件"}）`}
                             {p.confidence < 0.5 ? " · 低置信，建议核对上游史料" : ""}
                           </div>
                         </div>
@@ -288,7 +303,9 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
                       {b.extracts.filter((x, i) => x.kind === "event"
                         && (b.accepted?.[i] ?? true)).length} 事件 ·
                       {b.extracts.filter((x, i) => x.kind === "link"
-                        && (b.accepted?.[i] ?? true)).length} 观点挂载点
+                        && (b.accepted?.[i] ?? true)).length} 观点挂载点 ·{" "}
+                      {b.extracts.filter((x, i) => x.kind === "relation"
+                        && (b.accepted?.[i] ?? true)).length} 条实体间关系
                     </div>
                     {opErr[b.id] && <div className="dispute">{opErr[b.id]}</div>}
                     <div className="book-actions">

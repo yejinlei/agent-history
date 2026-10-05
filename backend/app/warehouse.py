@@ -269,11 +269,17 @@ class Warehouse:
 
     # ---------------- 实体（时间 / 空间切片）----------------
     def replace_entities(self, rows: list[dict]) -> int:
-        """全量重建实体副本（真值源为 Kuzu，本表可随时重生成）。"""
+        """全量重建实体副本（真值源为 Kuzu，本表可随时重生成）。
+
+        空 rows 一律原样返回、**不删表**：这里曾经「先 DELETE 全表再 executemany」，
+        一旦载入流程出现异常（例外被上层吞掉），表就被擦成 0 行而没人知道——
+        实测出现过整个 entities 表空掉、时间窗/空间窗查询拿不到数据的情况。
+        副本是随时可重建的衍生数据，宁可留着旧行，也不能被一次失误清空。
+        """
+        if not rows:
+            return 0
         with self.transaction():
             self.execute("DELETE FROM entities")
-            if not rows:
-                return 0
             self._conn.executemany(
                 """INSERT INTO entities
                    (entity_id, kind, name, year, dynasty_id, place_id,
