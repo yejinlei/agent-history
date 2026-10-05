@@ -278,6 +278,28 @@ class Warehouse:
         return [{"book_id": b, "idx": int(i), "text": t} for b, i, t in rows]
 
     # ---------------- 实体（时间 / 空间切片）----------------
+    @staticmethod
+    def _dedup_entity_rows(rows: list[dict]) -> list[dict]:
+        """按 (kind, entity_id) 去重，保留最后一条。
+
+        图库里一旦存在同 id 的重复节点（挂载中断后重试会用同样的
+        `<book>_e<n>` 序号再生成一遍），投影行就会出现重复主键，INSERT 直接抛
+        UNIQUE 冲突——**整批副本写不进去**，而副本是时间窗/空间窗查询的唯一来源
+        （《读通鉴论》挂载时就撞上过：`duplicate key "event, 读通鉴论_e0"`）。
+        宁可丢掉重复行，也不能让整批副本失败。
+        """
+        seen: dict[tuple, dict] = {}
+        dup = 0
+        for r in rows:
+            key = (r.get("kind"), r.get("entity_id"))
+            if key in seen:
+                dup += 1
+            seen[key] = r
+        if dup:
+            print(f"[warn] 实体副本收到 {dup} 条重复 (kind, entity_id)，已去重",
+                  flush=True)
+        return list(seen.values())
+
     def replace_entities(self, rows: list[dict]) -> int:
         """全量重建实体副本（真值源为 Kuzu，本表可随时重生成）。
 
@@ -288,6 +310,7 @@ class Warehouse:
         """
         if not rows:
             return 0
+        rows = self._dedup_entity_rows(rows)
         with self.transaction():
             self.execute("DELETE FROM entities")
             self._conn.executemany(
@@ -309,6 +332,7 @@ class Warehouse:
         """
         if not rows:
             return 0
+        rows = self._dedup_entity_rows(rows)
         ids = [r.get("entity_id") for r in rows]
         with self.transaction():
             for i in range(0, len(ids), 500):

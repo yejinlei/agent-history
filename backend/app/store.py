@@ -1471,6 +1471,13 @@ class Store:
         rel_failed = 0
         if len(accepted) != len(book.extracts):
             raise ValueError("accepted 位图长度须与提案数一致")
+        # 同 id 必须复用，不能无脑 append：人物 id 常常就是名字（「王饶」），
+        # 事件 id 形如 <book>_e<n>；两本书提到同一个人就会各建一条同 id 的 Person。
+        # 内存里出现两条同 id → 投影到 DuckDB 副本时主键 (kind, entity_id) 冲突 →
+        # **整批副本写不进去**（《旧五代史》《新唐书》的副本就是这样整本丢的），
+        # 而副本是时间窗/空间窗查询的唯一来源。这里按 id 建索引，命中就合并证据。
+        p_index = {p.id: p for p in self.people}
+        e_index = {e.id: e for e in self.events}
         for ext, ok in zip(book.extracts, accepted):
             if not ok:
                 continue
@@ -1482,15 +1489,23 @@ class Store:
                 # 上传书 LLM 提案可能无生卒：给空串占位，避免 None.split
                 yr_parts = (ext.years or "").split("—")
                 years = (yr_parts + ["", ""])[:2]
-                self.people.append(Person(
-                    id=node_id, name=ext.name, years=tuple(years),
-                    dynasty_id=book.dynasty_id, home="（挂载书源实体）",
-                    narrative=Narrative(
-                        student=ext.summary,
-                        scholar=ext.summary + f"　【本体注记】本实体由《{book.title}》挂载，学术使用请核对原书及更上游史料。",
-                        fan=ext.summary),
-                    from_book=book.id, book_sources=[src]))
-                added["person"] += 1
+                exist = p_index.get(node_id)
+                if exist is not None:
+                    # 已存在（跨书同名）：并入这条证据，不新建节点
+                    exist.book_sources.append(src)
+                    added["person_merged"] = added.get("person_merged", 0) + 1
+                else:
+                    p = Person(
+                        id=node_id, name=ext.name, years=tuple(years),
+                        dynasty_id=book.dynasty_id, home="（挂载书源实体）",
+                        narrative=Narrative(
+                            student=ext.summary,
+                            scholar=ext.summary + f"　【本体注记】本实体由《{book.title}》挂载，学术使用请核对原书及更上游史料。",
+                            fan=ext.summary),
+                        from_book=book.id, book_sources=[src])
+                    self.people.append(p)
+                    p_index[node_id] = p
+                    added["person"] += 1
             elif ext.kind == "event":
                 node_id = ext.new_id
                 ev_year = ext.year or 0
@@ -1502,17 +1517,24 @@ class Store:
                         ev_dyn = self.dynasty_at(int(ev_year)).id
                     except Exception:
                         pass
-                self.events.append(Event(
-                    id=node_id, name=ext.name, year=ev_year,
-                    dynasty_id=ev_dyn,
-                    # 坐标缺失一律为 None（禁止 0.0：会堆到几内亚湾）
-                    lon=ext.lon, lat=ext.lat,
-                    place=ext.place or "", actors=[],
-                    narrative=Narrative(student=ext.summary, scholar=ext.summary, fan=ext.summary),
-                    significance=None,
-                    dispute=f"挂载观点：代表《{book.title}》作者的解释框架，非学界定论。",
-                    from_book=book.id, book_sources=[src]))
-                added["event"] += 1
+                exist = e_index.get(node_id)
+                if exist is not None:
+                    exist.book_sources.append(src)
+                    added["event_merged"] = added.get("event_merged", 0) + 1
+                else:
+                    ev = Event(
+                        id=node_id, name=ext.name, year=ev_year,
+                        dynasty_id=ev_dyn,
+                        # 坐标缺失一律为 None（禁止 0.0：会堆到几内亚湾）
+                        lon=ext.lon, lat=ext.lat,
+                        place=ext.place or "", actors=[],
+                        narrative=Narrative(student=ext.summary, scholar=ext.summary, fan=ext.summary),
+                        significance=None,
+                        dispute=f"挂载观点：代表《{book.title}》作者的解释框架，非学界定论。",
+                        from_book=book.id, book_sources=[src])
+                    self.events.append(ev)
+                    e_index[node_id] = ev
+                    added["event"] += 1
             elif ext.kind == "link":
                 # 对齐到主干实体：目标可能是人或事，只按事件找会把「对齐到人物」
                 # 的提案全部静默丢弃（实测 62120 条 link 里绝大多数指向人物）。
