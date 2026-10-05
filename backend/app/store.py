@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import threading
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -190,6 +191,9 @@ class Store:
         self._save_stats: dict[str, tuple[int, int, int]] = {}
         # 本次 save 的差异明细（供 DuckDB 副本增量同步用）
         self._last_diff: dict = {}
+        # _purge_book_disk 删掉的实体 id：这些行已不在 Kuzu 里，因此不会进入
+        # diff 明细，但仍要把 DuckDB 副本里的同 id 记录一并清掉（见 save()）
+        self._purge_buffer: list[str] = []
         # buffer_pool_size 必须显式给：默认按机器内存比例分配，挂载大书会
         # bad allocation（见 config.KUZU_BUFFER_POOL_GB 注释）。
         self._db = kuzu.Database(
@@ -321,6 +325,26 @@ class Store:
                 n += 1
         return n
 
+    @staticmethod
+    def _update_sql(create_sql: str, label: str, key_field: str) -> str:
+        """由 CREATE 语句派生出原地更新语句（`SET` 各属性）。
+
+        为什么更新不能「删后重建」：DETACH DELETE 会遍历该节点的整条邻接表，
+        对刚被整批删掉上万条关系的节点做这一步，实测会把 Kuzu 原生层直接打死
+        （《资治通鉴》卸载时正是卡在 Book 节点的 DETACH DELETE 上）。SET 只改
+        属性、不碰邻接表，语义等价且没有级联代价。
+        """
+        body = create_sql[create_sql.index("{") + 1: create_sql.rindex("}")]
+        clause = []
+        for seg in body.split(","):
+            prop, _, param = seg.partition(":")
+            prop, param = prop.strip(), param.strip()
+            # 注意属性名与参数名不等价（如 span_s:$ss），须原样沿用 CREATE 里的参数名；
+            # 参数也不会多传——Kuzu 把多余参数直接报 "Parameter X not found"
+            if prop and prop != key_field:
+                clause.append("n.%s=%s" % (prop, param))
+        return f"MATCH (n:{label} {{{key_field}:$k}}) SET " + ", ".join(clause)
+
     def _plan_nodes(self, label: str, key_field: str, create_sql: str,
                     rows: dict[str, dict]) -> dict:
         """算出一张节点表的差异，返回可执行计划（**不写库**）。"""
@@ -328,26 +352,32 @@ class Store:
         missing = old.keys() - rows.keys()
         del_params = [{"k": k} for k in missing]
         write_rows: list[dict] = []
+        upd_rows: list[dict] = []
         changed: list = []
         n_add = n_upd = 0
         for k, row in rows.items():
             prev = old.get(k)
             if prev == row:
                 continue                       # 未变动：不写、也不进 DuckDB 投影
-            if prev is not None:               # 变更：删后重建，语义等价 upsert
-                del_params.append({"k": k})
+            if prev is not None:               # 变更：原地 SET 覆盖各属性
+                # 只传语句真正引用的参数：Kuzu 会把多余参数当作
+                # "Parameter X not found"（SET 里不含主键，故剔除）
+                upd_rows.append({**{f: v for f, v in row.items() if f != key_field},
+                                 "k": k})
                 n_upd += 1
             else:
+                write_rows.append(row)
                 n_add += 1
-            write_rows.append(row)
             changed.append(k)
         diff = self._last_diff.setdefault("nodes", {"changed": [], "removed": []})
         diff["changed"].extend(changed)
         diff["removed"].extend(missing)
         return {"label": label,
                 "del_sql": f"MATCH (n:{label} {{{key_field}:$k}}) DETACH DELETE n",
-                "create_sql": create_sql, "del_params": del_params,
-                "write_rows": write_rows, "rows": dict(rows),
+                "create_sql": create_sql,
+                "update_sql": self._update_sql(create_sql, label, key_field),
+                "del_params": del_params, "write_rows": write_rows,
+                "upd_rows": upd_rows, "rows": dict(rows),
                 "stats": (n_add, n_upd, len(missing))}
 
     @staticmethod
@@ -398,13 +428,15 @@ class Store:
         return {"a": row["a"], "b": row["b"], "rel": row["rel"], "fb": row["fb"]}
 
     def _apply_plans(self, node_plans: list[dict], edge_plans: list[dict]) -> dict:
-        """按 删边 → 删节点 → 写节点 → 写边 的顺序落盘。"""
+        """按 删边 → 删节点 → 写新节点 → 更新存量节点 → 写边 的顺序落盘。"""
         for plan in edge_plans:
             self._run_batch(plan["delete_sql"], plan["del_params"])
         for plan in node_plans:
             self._run_batch(plan["del_sql"], plan["del_params"])
         for plan in node_plans:
             self._run_batch(plan["create_sql"], plan["write_rows"])
+        for plan in node_plans:
+            self._run_batch(plan["update_sql"], plan["upd_rows"])
         for plan in edge_plans:
             self._run_batch(plan["create_sql"], plan["write_rows"])
         stats: dict[str, tuple[int, int, int]] = {
@@ -412,6 +444,56 @@ class Store:
         stats["KGREL"] = tuple(sum(p["stats"][i] for p in edge_plans)
                                for i in range(3))
         return stats
+
+    def _reset_kuzu_connection(self) -> None:
+        """丢弃并重开 Kuzu 连接——批量删除之后的必要动作。
+
+        执行过万级批量删除（`MATCH ()-[r:KGREL {from_book:$fb}]->() DELETE r`
+        与按 `from_book` 的 DETACH DELETE）的那条连接会被「毒化」：立刻生效不了，
+        但紧接着再扫一次 KGREL 表就会把整个进程打死（无异常、无堆栈，原生层直接
+        终止，实测必现）。另一个进程打开同一份库则完全正常，说明磁盘数据没坏、
+        坏的只是这条连接的内存态。
+
+        所以批量删除之后不能在同一条连接上继续干活，必须关掉重开。实测重开后
+        聚合查询 / SET 改属性 / 建删节点 / 顺序扫描全部正常。
+        """
+        with self._lock:
+            self._conn = None
+            self._db = None
+            self._db = kuzu.Database(
+                str(_KUZU_DB),
+                buffer_pool_size=int(config.KUZU_BUFFER_POOL_GB * 1024 ** 3))
+            self._conn = kuzu.Connection(self._db)
+
+    def _purge_book_disk(self, book_id: str) -> list[str]:
+        """磁盘侧整书清除：不依赖内存状态，按 `from_book` 属性一条语句清一批。
+
+        为什么卸载不能走通用 diff：通用 diff 要为这本书的每条节点与边各发一条
+        语句（2944+16145 节点 + 44446 条边 ≈ 9 万次 round-trip）。实测要把进程
+        顶到 3.6GB、耗时 8 分钟以上；而这本书产生的行必定带 `from_book`，一条
+        `MATCH (n:X {from_book:$fb}) DETACH DELETE n` 就能整批清掉，**实测 2.7 秒**。
+
+        要点：只删「快照里行数变化必需」的标签（row 含 fb 键），因此对没有
+        from_book 属性的表（Dynasty / Place / Book …）不会误发语句；命中为空
+        的表也不会产生任何写入。同时把快照里属于该书的记录一并摘掉，使后续
+        save() 对这些行 diff 为零。
+
+        返回被删实体 id，调用方负责把它们推进 DuckDB 副本清理队列。
+        """
+        self._x("MATCH ()-[r:KGREL {from_book:$fb}]->() DELETE r", {"fb": book_id})
+        self._kz_edge_snap = {k: v for k, v in self._kz_edge_snap.items()
+                              if v.get("fb") != book_id}
+        removed: list[str] = []
+        for label, rows in self._kz_snap.items():
+            hits = [k for k, row in rows.items() if row.get("fb") == book_id]
+            if not hits:
+                continue
+            self._x(f"MATCH (n:{label} {{from_book:$fb}}) DETACH DELETE n",
+                    {"fb": book_id})
+            for k in hits:
+                rows.pop(k, None)
+            removed.extend(hits)
+        return removed
 
     # ================= 遗留 JSON（一次性迁移来源） =================
     def _load_json(self) -> None:
@@ -514,10 +596,18 @@ class Store:
 
         旧实现是 DROP 全表 + 全量重写，写入量随书架累加；现已改为差分写
         （详见 _save_locked），Kuzu 副本与 DuckDB 副本都只动变化的那部分。
+
+        _purge_book_disk 删掉的行不在 diff 明细里（它在 diff 之前执行），因此
+        需要单独带进来清 DuckDB 副本——否则卸载后实体副本会残留孤岛记录。
         """
+        carry = list(self._purge_buffer)
+        self._purge_buffer.clear()
         self._last_diff = {}
         with self._save_lock:
             self._save_locked()
+        if carry:
+            diff = self._last_diff.setdefault("nodes", {"changed": [], "removed": []})
+            diff["removed"] = list(dict.fromkeys(diff.get("removed", []) + carry))
         self._sync_entities_to_warehouse()
 
     def _entity_rows(self) -> list[dict]:
@@ -563,7 +653,11 @@ class Store:
             if removed:
                 warehouse.delete_entities(removed)
             return len(rows)
-        except Exception:
+        except Exception as exc:        # 副本丢失可重建，但不能悄悄丢
+            # 这里曾经静默 return 0，导致 replace_entities 先删后插失败时
+            # （整个 entities 表被清空）没人知道，只剩一个空表在对外提供查询。
+            print("[warn] 实体副本同步失败：%s" % exc, flush=True)
+            traceback.print_exc()
             return 0
 
     def _render(self) -> tuple[list[tuple[str, dict]], list[dict]]:
@@ -1287,18 +1381,35 @@ class Store:
                 self.add_edge(book.id, node_id, "书载观点",
                               confidence=ext.confidence, src_ids=[book.id],
                               from_book=book.id)
+        # mounted 标记必须等本体真正落盘之后再写：先置位再 save 的话，save 抛错
+        # （例：Kuzu bad allocation）会留下「内存已挂载、图库没数据」的脏状态，
+        # 而且 book.mounted 为真会让后续 apply 被 409 挡住、只能先卸载才能重来。
+        # 第二次 save 只写 Book 行，其余行 diff 为零，成本可忽略。
+        if persist:
+            self.save()
         book.mounted = True
         book.accepted = list(accepted)
         if persist:
             self.save()
         return added
 
-    def uncommit_book(self, book: Book) -> None:
+    def uncommit_book(self, book: Book) -> dict:
         """卸载：移除该书引入的节点/边并落盘（内存变更 + save 同一临界区）。"""
         with self.transaction():
-            self._uncommit_locked(book)
+            return self._uncommit_locked(book)
 
     def _uncommit_locked(self, book: Book) -> None:
+        """卸载的顺序是硬约束：**先清磁盘，再改内存**。
+
+        旧实现反过来（先改内存、再 save 走通用 diff），中途失败就会留下
+        「内存里已卸载、图库里都还在」的分叉：接口显示未挂载，但数据仍在，
+        重启后又从磁盘原样加载回来，用户以为删掉的东西复活了。现在磁盘侧
+        整书清除只依赖 `from_book`（见 _purge_book_disk），失败时内存完全没被
+        动过，可以直接原样重试，不存在半成品状态。
+        """
+        removed = self._purge_book_disk(book.id)
+        self._reset_kuzu_connection()      # 批量删除把连接毒化了，见方法注释
+        self._purge_buffer.extend(removed)
         self.people = [p for p in self.people if p.from_book != book.id]
         self.events = [e for e in self.events if e.from_book != book.id]
         for table in (self.events, self.people, self.places):
@@ -1308,7 +1419,10 @@ class Store:
                     obj.book_sources = [s for s in bs if s.from_book != book.id]
         self.edges = [e for e in self.edges if e.get("from_book") != book.id]
         book.mounted = False
+        # 此刻磁盘已不含该书任何行，快照也已对齐 → 本次 save 只会写 Book 节点
+        # 的 mounted 翻转与残留 book_sources 变更，并清掉 DuckDB 实体副本。
         self.save()
+        return {"person": 0, "event": 0, "removed": len(removed)}
 
 
 # 单例（FastAPI lifespan 中创建并挂到 app.state）
