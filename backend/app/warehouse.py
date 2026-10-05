@@ -188,7 +188,13 @@ class Warehouse:
                 yield self
                 self._conn.execute("COMMIT")
             except Exception:
-                self._conn.execute("ROLLBACK")
+                # DuckDB 在语句出错时会自动中止事务；此时再 ROLLBACK 会抛
+                # "cannot rollback - no transaction is active"，把真正的错误顶掉，
+                # 只留下一句看不懂的话（实体副本曾被这样静默同步失败过）。
+                try:
+                    self._conn.execute("ROLLBACK")
+                except Exception:
+                    pass
                 raise
 
     # ---------------- 书籍 ----------------

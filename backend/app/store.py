@@ -184,9 +184,15 @@ class Store:
         # save 的整体临界区，杜绝并发 save 交叉破坏
         self._save_lock = threading.RLock()
         # 增量落盘快照：记录「上次写进磁盘的内容」，save 时据此做差异。
-        # 节点：表名 → {主键: params}；边：{(源标签, 目标标签, a, b, rel, fb): params}
-        self._kz_snap: dict[str, dict] = {}
-        self._kz_edge_snap: dict[tuple, dict] = {}
+        # 只存**行指纹**（64 位 int），不存整行——整行快照实测一本书就要
+        # 173.8 MB（节点）+ 75.8 MB（边），26 本线性外推 6 GB 以上；存指纹约 20 MB。
+        # 节点：表名 → {主键: 指纹}；边：{(源标签, 目标标签, a, b, rel, fb): 指纹}
+        self._kz_snap: dict[str, dict[str, int]] = {}
+        self._kz_edge_snap: dict[tuple, int] = {}
+        # 书 → 该书产生的节点 id（卸载时按书整批清快照用；指纹里查不到 fb 了）
+        self._kz_node_book: dict[str, set] = {}
+        # 表名 → (主键字段, CREATE 语句)：某表被清空时仍要能算出删除语句
+        self._kz_node_sql: dict[str, tuple] = {}
         self._pending_dangling: list[dict] = []
         self._save_stats: dict[str, tuple[int, int, int]] = {}
         # 本次 save 的差异明细（供 DuckDB 副本增量同步用）
@@ -204,7 +210,7 @@ class Store:
         if self._kuzu_ready():
             self._load_kuzu()
             # 内存此刻等价于磁盘 → 快照对齐：下一次 save 零写入，不再整库重写
-            self._sync_snapshot()
+            self._build_snapshot()
             # 切块真值源迁移：旧库 Chunk 表数据一次性搬入 DuckDB
             self._sync_chunks_to_warehouse()
             # 实体副本同步到 DuckDB（查询用加速副本）：副本为空才全量重建，
@@ -293,8 +299,8 @@ class Store:
             for stmt in _NODE_DDL:
                 self._x(stmt)
             self._x(_REL_DDL)
-            self._kz_snap = {}
-            self._kz_edge_snap = {}
+            self._kz_snap, self._kz_edge_snap = {}, {}
+            self._kz_node_book, self._kz_node_sql = {}, {}
             return
         if "KGREL" not in existing:
             self._x(_REL_DDL)
@@ -345,40 +351,159 @@ class Store:
                 clause.append("n.%s=%s" % (prop, param))
         return f"MATCH (n:{label} {{{key_field}:$k}}) SET " + ", ".join(clause)
 
-    def _plan_nodes(self, label: str, key_field: str, create_sql: str,
-                    rows: dict[str, dict]) -> dict:
-        """算出一张节点表的差异，返回可执行计划（**不写库**）。"""
-        old = self._kz_snap.get(label, {})
-        missing = old.keys() - rows.keys()
-        del_params = [{"k": k} for k in missing]
-        write_rows: list[dict] = []
-        upd_rows: list[dict] = []
-        changed: list = []
-        n_add = n_upd = 0
-        for k, row in rows.items():
-            prev = old.get(k)
-            if prev == row:
-                continue                       # 未变动：不写、也不进 DuckDB 投影
-            if prev is not None:               # 变更：原地 SET 覆盖各属性
-                # 只传语句真正引用的参数：Kuzu 会把多余参数当作
-                # "Parameter X not found"（SET 里不含主键，故剔除）
-                upd_rows.append({**{f: v for f, v in row.items() if f != key_field},
-                                 "k": k})
-                n_upd += 1
-            else:
-                write_rows.append(row)
-                n_add += 1
-            changed.append(k)
-        diff = self._last_diff.setdefault("nodes", {"changed": [], "removed": []})
-        diff["changed"].extend(changed)
-        diff["removed"].extend(missing)
-        return {"label": label,
+    @staticmethod
+    def _row_fp(row: dict) -> int:
+        """行内容指纹：只用来判断「这行相对上次落盘变没变」。
+
+        快照必须留住全图，所以它存什么直接决定常驻内存的量级：存整行时
+        《资治通鉴》一本书就是 173.8 MB（节点）+ 75.8 MB（边），26 本书线性
+        外推 6 GB 以上。改成存 64 位指纹后降到约 20 MB，代价是理论上有
+        n²/2^64 的碰撞概率（十万行量级约 5e-10），可接受——碰撞最坏也只是
+        漏写一次属性更新，下一次 save 内容变了会重算。
+        """
+        return hash(json.dumps(row, sort_keys=True, ensure_ascii=False,
+                               default=str))
+
+    def _walk_rows(self, on_node, on_edge) -> list[dict]:
+        """逐行渲染当前内存状态并回调，**不留存语句列表**。
+
+        旧实现先录 (sql, params) 再分组，等于把整图多留一份（实测 13.3 万条
+        语句 252 MB），而且这个量随图增长——挂第 N 本书时的瞬时内存按全图算，
+        不只是本书的提案。这里改成回调，由调用方决定留什么（差分只留变动行）。
+        """
+        saved = self._x
+
+        def rec(sql, params=None):
+            params = params or {}
+            if sql.startswith("CREATE (n:"):
+                label = sql[len("CREATE (n:"):].split(" ")[0]
+                on_node(label, "sid" if label == "Source" else "id", sql, params)
+            else:                              # MATCH(a),(b) CREATE (a)-[..]->(b)
+                la = sql.split("(a:")[1].split(" ")[0]
+                lb = sql.split("(b:")[1].split(" ")[0]
+                on_edge(la, lb, params)
+            return None
+
+        self._x = rec
+        try:
+            self._emit_statements()
+        finally:
+            self._x = saved
+        return self._pending_dangling
+
+    def _build_snapshot(self) -> None:
+        """把快照对齐到当前内存（从磁盘加载完之后调用，使下次 save 零写入）。"""
+        snap_n: dict[str, dict[str, int]] = {}
+        snap_e: dict[tuple, int] = {}
+        by_book: dict[str, set] = {}
+
+        def on_node(label, key_field, create_sql, params):
+            snap_n.setdefault(label, {})[params[key_field]] = self._row_fp(params)
+            self._kz_node_sql[label] = (key_field, create_sql)
+            if params.get("fb"):
+                by_book.setdefault(str(params["fb"]), set()).add(params[key_field])
+
+        def on_edge(la, lb, params):
+            snap_e[(la, lb, params["a"], params["b"], params["rel"],
+                    params["fb"])] = self._row_fp(params)
+
+        self._walk_rows(on_node, on_edge)
+        self._kz_snap, self._kz_edge_snap = snap_n, snap_e
+        self._kz_node_book = by_book
+
+    def _collect_plans(self) -> tuple[list[dict], list[dict], dict, dict,
+                                      dict, list[dict]]:
+        """边渲染边算差异：**只为发生变化的行保留 params**。
+
+        返回 (节点计划, 边计划, 新节点快照, 新边快照, 书→节点 id, 悬空边)。
+        计划里不再带整表 rows——那是旧实现内存翻倍的地方。
+        """
+        old_n, old_e = self._kz_snap, self._kz_edge_snap
+        snap_n: dict[str, dict[str, int]] = {}
+        snap_e: dict[tuple, int] = {}
+        by_book: dict[str, set] = {}
+        plans_n: dict[str, dict] = {}
+        plans_e: dict[tuple, dict] = {}
+
+        def plan_node(label: str, key_field: str, create_sql: str) -> dict:
+            return plans_n.setdefault(label, {
+                "label": label,
                 "del_sql": f"MATCH (n:{label} {{{key_field}:$k}}) DETACH DELETE n",
                 "create_sql": create_sql,
-                "update_sql": self._update_sql(create_sql, label, key_field),
-                "del_params": del_params, "write_rows": write_rows,
-                "upd_rows": upd_rows, "rows": dict(rows),
-                "stats": (n_add, n_upd, len(missing))}
+                "update_sql": (self._update_sql(create_sql, label, key_field)
+                               if create_sql else ""),
+                "del_params": [], "write_rows": [], "upd_rows": [],
+                "changed": [], "stats": [0, 0, 0]})
+
+        def plan_edge(la: str, lb: str) -> dict:
+            create_sql, delete_sql = self._edge_sqls(la, lb)
+            return plans_e.setdefault((la, lb), {
+                "create_sql": create_sql, "delete_sql": delete_sql,
+                "del_params": [], "write_rows": [], "stats": [0, 0, 0]})
+
+        def on_node(label, key_field, create_sql, params):
+            key = params[key_field]
+            fp = self._row_fp(params)
+            snap_n.setdefault(label, {})[key] = fp
+            self._kz_node_sql[label] = (key_field, create_sql)
+            if params.get("fb"):
+                by_book.setdefault(str(params["fb"]), set()).add(key)
+            prev = old_n.get(label, {}).get(key)
+            if prev == fp:
+                return                          # 未变动：不写、也不进 DuckDB 投影
+            p = plan_node(label, key_field, create_sql)
+            if prev is not None:                # 变更：原地 SET 覆盖各属性
+                # 只传语句真正引用的参数：Kuzu 会把多余参数当作
+                # "Parameter X not found"（SET 里不含主键，故剔除）
+                p["upd_rows"].append({**{f: v for f, v in params.items()
+                                         if f != key_field}, "k": key})
+                p["stats"][1] += 1
+            else:
+                p["write_rows"].append(params)
+                p["stats"][0] += 1
+            p["changed"].append(key)
+
+        def on_edge(la, lb, params):
+            key = (la, lb, params["a"], params["b"], params["rel"], params["fb"])
+            fp = self._row_fp(params)
+            snap_e[key] = fp
+            prev = old_e.get(key)
+            if prev == fp:
+                return
+            p = plan_edge(la, lb)
+            if prev is not None:                # 变更：删后重建（边没有 SET 可用）
+                p["del_params"].append({"a": params["a"], "b": params["b"],
+                                        "rel": params["rel"], "fb": params["fb"]})
+                p["stats"][1] += 1
+            else:
+                p["stats"][0] += 1
+            p["write_rows"].append({k: v for k, v in params.items()
+                                    if k not in ("la", "lb")})
+
+        dangling = self._walk_rows(on_node, on_edge)
+
+        # 只在旧快照里、当前内存已没有的行 → 删除
+        diff = self._last_diff.setdefault("nodes", {"changed": [], "removed": []})
+        for label, old_rows in old_n.items():
+            missing = old_rows.keys() - snap_n.get(label, {}).keys()
+            if not missing:
+                continue
+            key_field, create_sql = self._kz_node_sql.get(
+                label, ("sid" if label == "Source" else "id", ""))
+            p = plan_node(label, key_field, create_sql)
+            p["del_params"].extend({"k": k} for k in missing)
+            p["stats"][2] += len(missing)
+            diff["removed"].extend(missing)
+        for key in old_e.keys() - snap_e.keys():
+            la, lb, a, b, rel, fb = key
+            p = plan_edge(la, lb)
+            p["del_params"].append({"a": a, "b": b, "rel": rel, "fb": fb})
+            p["stats"][2] += 1
+        for p in plans_n.values():
+            diff["changed"].extend(p["changed"])
+
+        return (list(plans_n.values()), list(plans_e.values()),
+                snap_n, snap_e, by_book, dangling)
 
     @staticmethod
     def _edge_sqls(la: str, lb: str) -> tuple[str, str]:
@@ -391,41 +516,6 @@ class Store:
         delete = (head + "MATCH (a)-[r:KGREL {rel:$rel, from_book:$fb}]->(b)"
                   " DELETE r")
         return create, delete
-
-    def _plan_edges(self, rows: dict[tuple, dict]) -> list[dict]:
-        """算出边的差异，按 (源标签, 目标标签) 分组返回计划列表（不写库）。"""
-        old = self._kz_edge_snap
-        groups: dict[tuple, dict] = {}
-
-        def grp(la: str, lb: str) -> dict:
-            create_sql, delete_sql = self._edge_sqls(la, lb)
-            return groups.setdefault(
-                (la, lb), {"create_sql": create_sql, "delete_sql": delete_sql,
-                           "del_params": [], "write_rows": [], "stats": [0, 0, 0]})
-
-        for key in old.keys() - rows.keys():
-            row = old[key]
-            g = grp(row["la"], row["lb"])
-            g["del_params"].append(self._edge_key_params(row))
-            g["stats"][2] += 1
-        for key, row in rows.items():
-            prev = old.get(key)
-            if prev == row:
-                continue
-            g = grp(row["la"], row["lb"])
-            if prev is not None:
-                g["del_params"].append(self._edge_key_params(row))
-                g["stats"][1] += 1
-            else:
-                g["stats"][0] += 1
-            g["write_rows"].append({k: v for k, v in row.items()
-                                    if k not in ("la", "lb")})
-        return list(groups.values())
-
-    @staticmethod
-    def _edge_key_params(row: dict) -> dict:
-        """DELETE 语句只用到这 4 个参数，多传会被 Kuzu 拒（Parameter not found）。"""
-        return {"a": row["a"], "b": row["b"], "rel": row["rel"], "fb": row["fb"]}
 
     def _apply_plans(self, node_plans: list[dict], edge_plans: list[dict]) -> dict:
         """按 删边 → 删节点 → 写新节点 → 更新存量节点 → 写边 的顺序落盘。"""
@@ -481,11 +571,14 @@ class Store:
         返回被删实体 id，调用方负责把它们推进 DuckDB 副本清理队列。
         """
         self._x("MATCH ()-[r:KGREL {from_book:$fb}]->() DELETE r", {"fb": book_id})
+        # 边的 from_book 就在快照 key 里（key 第 6 位），指纹里查不到也无妨
         self._kz_edge_snap = {k: v for k, v in self._kz_edge_snap.items()
-                              if v.get("fb") != book_id}
+                              if k[5] != book_id}
         removed: list[str] = []
+        # 节点归属改由 _kz_node_book 索引提供：快照只剩指纹，没有 fb 可查了
+        pool = self._kz_node_book.pop(book_id, set())
         for label, rows in self._kz_snap.items():
-            hits = [k for k, row in rows.items() if row.get("fb") == book_id]
+            hits = [k for k in rows.keys() if k in pool]
             if not hits:
                 continue
             self._x(f"MATCH (n:{label} {{from_book:$fb}}) DETACH DELETE n",
@@ -667,77 +760,25 @@ class Store:
             traceback.print_exc()
             return 0
 
-    def _render(self) -> tuple[list[tuple[str, dict]], list[dict]]:
-        """跑一遍 _emit_statements，但把写库语句「录下来」而不是执行。"""
-        saved, out = self._x, []
-
-        def rec(sql, params=None):
-            out.append((sql, params or {}))
-            return None
-
-        self._x = rec
-        try:
-            self._emit_statements()
-        finally:
-            self._x = saved
-        return out, self._pending_dangling
-
     def _save_locked(self) -> None:
         """增量落盘：内存与「上次落盘快照」做差，只写发生变化的部分。
 
         对比旧版「DROP 全表 + 全量重写」：写入量不再随书架累加——第 N 本书
         挂载时只写它自己的提案，而不是前 N 本书的全部节点与边。这正是挂载
         《资治通鉴》44447 条把进程顶到 17.7GB 的根因。
+
+        内存上也不再留整行：渲染与差分一次走完（`_collect_plans`），未变动的
+        行连 params 都不留，快照只存指纹。
         """
         self._ensure_schema()
-        stmts, dangling = self._render()
-        nodes: dict[str, tuple[str, str, dict]] = {}    # label -> (key, sql, rows)
-        edges: dict[tuple, dict] = {}
-        for sql, params in stmts:
-            if sql.startswith("CREATE (n:"):
-                label = sql[len("CREATE (n:"):].split(" ")[0]
-                key_field = "sid" if label == "Source" else "id"
-                _, create_sql, rows = nodes.setdefault(label, (key_field, sql, {}))
-                rows[params[key_field]] = params
-            else:                                        # MATCH(a),(b) CREATE (a)-[..]->(b)
-                la = sql.split("(a:")[1].split(" ")[0]
-                lb = sql.split("(b:")[1].split(" ")[0]
-                row = {"a": params["a"], "b": params["b"], "rel": params["rel"],
-                       "fb": params["fb"], "conf": params["conf"],
-                       "sids": params["sids"], "la": la, "lb": lb}
-                edges[(la, lb, params["a"], params["b"], params["rel"],
-                       params["fb"])] = row
-
-        node_plans = [self._plan_nodes(label, key_field, create_sql, rows)
-                      for label, (key_field, create_sql, rows) in nodes.items()]
-        edge_plans = self._plan_edges(edges)
+        (node_plans, edge_plans, snap_n, snap_e, by_book,
+         dangling) = self._collect_plans()
         stats = self._apply_plans(node_plans, edge_plans)
         # 全部写成功后才推进快照：中途抛异常时快照保持不变，下一次能重算同样的差异
-        for plan in node_plans:
-            self._kz_snap[plan["label"]] = plan["rows"]
-        self._kz_edge_snap = dict(edges)
+        self._kz_snap, self._kz_edge_snap, self._kz_node_book = (
+            snap_n, snap_e, by_book)
         (_KG_DIR / "dangling_edges.json").write_text(_j(dangling), encoding="utf-8")
         self._save_stats = stats        # 排错用：每张表 (新增, 变更, 删除)
-
-    def _sync_snapshot(self) -> None:
-        """把快照对齐到当前内存。
-
-        从磁盘加载完之后调用：此时内存与磁盘一致，下一次 save 应当零写入。
-        """
-        stmts, _ = self._render()
-        for sql, params in stmts:
-            if sql.startswith("CREATE (n:"):
-                label = sql[len("CREATE (n:"):].split(" ")[0]
-                key_field = "sid" if label == "Source" else "id"
-                self._kz_snap.setdefault(label, {})[params[key_field]] = params
-            else:
-                la = sql.split("(a:")[1].split(" ")[0]
-                lb = sql.split("(b:")[1].split(" ")[0]
-                self._kz_edge_snap[(la, lb, params["a"], params["b"],
-                                    params["rel"], params["fb"])] = {
-                    "a": params["a"], "b": params["b"], "rel": params["rel"],
-                    "fb": params["fb"], "conf": params["conf"],
-                    "sids": params["sids"], "la": la, "lb": lb}
 
     def _emit_statements(self) -> None:
         """把当前内存状态渲染成写库语句——**不真写库**。
