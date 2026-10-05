@@ -29,10 +29,11 @@ from app.ingestion.pipeline import (
     BuildOptions, BuildResult, accumulate, finalize, known_from_store,
     new_accumulator)
 from app.ingestion.rag import chunk_text
+from app import config
 from app.schema.ontology import Book
 from app.warehouse import warehouse
 
-_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+_DATA_DIR = Path(config.DATA_DIR)
 _BOOKS_DIR = _DATA_DIR / "books"
 _MANIFEST = _DATA_DIR / "books_manifest.json"
 _ARTIFACT_DIR = _DATA_DIR / "ingest"

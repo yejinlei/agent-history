@@ -15,7 +15,9 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-_DATA = Path(__file__).resolve().parents[1] / "data"
+from app import config
+
+_DATA = Path(config.DATA_DIR)
 _MERGE_FILE = _DATA / "merges.json"
 
 _PUNCT = re.compile(r"[\s,，。·:：;；!！?？\"'（）()【】\[\]「」『』、\-—_/\\]+")

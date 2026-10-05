@@ -20,7 +20,7 @@ from pathlib import Path
 from app import config
 from app.ingestion.resolve import normalize_name
 
-_DATA = Path(__file__).resolve().parents[1] / "data"
+_DATA = Path(config.DATA_DIR)
 
 _SENT_SPLIT = re.compile(r"[。！？；!?;\n]+")
 _CJK = r"\u4e00-\u9fa5"

@@ -23,7 +23,11 @@ from typing import Iterable
 
 import duckdb
 
-_DATA_DIR = Path(__file__).resolve().parent / "data"
+from app import config
+
+# 数据根目录可挪盘（见 config.DATA_DIR 注释）：系统盘爆满时改 .env 即可，
+# 这里的图库/数仓会跟着走。
+_DATA_DIR = Path(config.DATA_DIR)
 _WAREHOUSE_DIR = _DATA_DIR / "warehouse"
 _DB_FILE = _WAREHOUSE_DIR / "chronosino.duckdb"
 

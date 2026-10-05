@@ -114,18 +114,32 @@ def proposals_from_json(data: dict) -> tuple[list[Extract], list[dict], dict]:
 
 # ---------------------------------------------------------------- known 快照
 def known_from_store(store) -> dict:
-    """从 Store 抽取"已知实体"快照（离线无 store 时可传空字典）。"""
+    """从 Store 抽取"已知实体"快照（离线无 store 时可传空字典）。
+
+    除名字集合外还必须给出「归一化名 → id」映射：
+    - 事件 id 与事件名是两回事（`bk_x_e12` vs「商鞅变法」），只有名字集合时
+      `_resolve_target` 永远匹配不上，link 提案恒为 0（多本书之间就永远
+      连不到主干，各建各的重复节点）。
+    - 有了映射，端点解析是一次字典查询；否则要线性扫 people 列表，
+      5 万条关系 × 1.7 万人 = 9 亿次比较，收口要跑十几分钟。
+    """
+    people = [{"name": p.name, "aliases": list(p.aliases), "id": p.id}
+              for p in store.people]
+    person_name_ids: dict[str, str] = {}
+    for p in store.people:
+        person_name_ids[normalize_name(p.name)] = p.id
+        for a in (p.aliases or []):
+            person_name_ids.setdefault(normalize_name(a), p.id)
     return {
-        "people": [{"name": p.name, "aliases": list(p.aliases)}
-                   for p in store.people],
+        "people": people,
         "places": [{"name": pl.name, "ancient": pl.ancient, "id": pl.id,
                     "lon": pl.lon, "lat": pl.lat} for pl in store.places],
         "person_ids": {p.id for p in store.people},
-        "person_names": {normalize_name(p.name) for p in store.people}
-                        | {normalize_name(a) for p in store.people
-                           for a in (p.aliases or [])},
+        "person_names": set(person_name_ids),
+        "person_name_ids": person_name_ids,
         "event_ids": {e.id for e in store.events},
         "event_names": {normalize_name(e.name) for e in store.events},
+        "event_name_ids": {normalize_name(e.name): e.id for e in store.events},
         "dynasty_ids": {d.id for d in store.dynasties},
     }
 
@@ -323,13 +337,21 @@ def _resolve_target(resolver, known: dict, name: str, kind: str) -> str | None:
             pass
     key = normalize_name(name)
     if kind == "person":
+        # 名字→id 映射优先：事件/人物 id 往往不等于归一化名，只比对 id 集合
+        # 会永远匹配不上（link 提案恒为 0 的根因）
+        hit = known.get("person_name_ids", {}).get(key)
+        if hit:
+            return hit
         if key in known.get("person_ids", set()):
             return key
-        for p in known.get("people", []):
+        for p in known.get("people", []):        # 老快照没有映射时的兜底
             if normalize_name(p["name"]) == key:
                 return p.get("id") or key
         return None
     if kind == "event":
+        hit = known.get("event_name_ids", {}).get(key)
+        if hit:
+            return hit
         if key in known.get("event_ids", set()):
             return key
         return None

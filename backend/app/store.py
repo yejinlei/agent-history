@@ -32,7 +32,7 @@ from app.schema.ontology import (
     Narrative, Person, Place, Source, REL_PAIRS,
 )
 
-_DATA_DIR = Path(__file__).parent / "data"
+_DATA_DIR = Path(config.DATA_DIR)
 _ONT_DIR = _DATA_DIR / "ontology"          # 遗留 JSON（仅一次性迁移来源）
 _KG_DIR = _DATA_DIR / "kg"
 _KUZU_DB = _KG_DIR / "kuzu_db"
@@ -1418,8 +1418,11 @@ class Store:
                     from_book=book.id, book_sources=[src]))
                 added["event"] += 1
             elif ext.kind == "link":
+                # 对齐到主干实体：目标可能是人或事，只按事件找会把「对齐到人物」
+                # 的提案全部静默丢弃（实测 62120 条 link 里绝大多数指向人物）。
                 node_id = ext.target_id
-                target = self.get("event", node_id)
+                target = (self.get("event", node_id)
+                          or self.get("person", node_id))
                 if target:
                     target.book_sources.append(src)
                     added["link"] += 1

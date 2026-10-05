@@ -155,7 +155,7 @@ def all_events(frm: int = -8000, to: int = 1912):
 #   本地 backend/app/data/tiles/ 已有 → 直接返回；
 #   否则从 tile.osgeo.cn 下载、落盘缓存后返回。
 # 浏览过的瓦片自动积累在本地，可随 git 提交，离线/内网也能用。
-_TILE_DIR = Path(__file__).resolve().parent.parent / "data" / "tiles"
+_TILE_DIR = Path(config.DATA_DIR) / "tiles"
 _OSGEO_WMTS = "https://tile.osgeo.cn/wmts"
 _TILE_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -824,7 +824,7 @@ def ingest_apply(book_id: str):
     """
     from app.ingestion.pipeline import proposals_from_json
 
-    art = Path(__file__).resolve().parents[1] / "data" / "ingest" / f"{book_id}.json"
+    art = Path(config.DATA_DIR) / "ingest" / f"{book_id}.json"
     if not art.exists():
         raise HTTPException(404, f"没有离线产物：{art}"
                                  "（先跑 scripts/ingest_one.py 生成）")

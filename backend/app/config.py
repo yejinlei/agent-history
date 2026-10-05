@@ -47,6 +47,13 @@ LLM_CHAT_MAX_TOKENS = int(os.getenv("LLM_CHAT_MAX_TOKENS", "4096"))
 # 显式给出上限，让 Kuzu 落盘换页而不是无限吃内存（牺牲速度换稳定性）。
 KUZU_BUFFER_POOL_GB = float(os.getenv("KUZU_BUFFER_POOL_GB", "6"))
 
+# ---- 数据目录 ----
+# 图库（Kuzu）+ 数仓（DuckDB）+ 书籍原文 + 瓦片都放在这里，单本书挂载瞬时
+# 要吃数 GB、26 本累计几十 GB；系统盘爆满时可通过 CHRONOSINO_DATA_DIR
+# 整体挪到别的盘，代码不需要改（各模块一律经 config.DATA_DIR 取路径）。
+DATA_DIR = Path(os.getenv("CHRONOSINO_DATA_DIR", "") or
+                Path(__file__).resolve().parent / "data")
+
 # ---- 本地嵌入模型（ONNX，离线可用）----
 # 当前 LLM 服务不提供 embedding 模型，RAG 的语义检索改由本地模型承担。
 # 模型存放于项目根 models/（与 backend/ 同级），由 scripts/embed_chunks.py 下载。

@@ -23,9 +23,10 @@ from app.ingestion.rag import retrieve_chunks
 from app.llm.base import get_llm
 from app.llm.local_embed import get_embedder
 from app.ontology.actions import action_log
+from app import config
 from app.agents.registry import TOOLS, AgentRegistry
 
-_DATA = Path(__file__).resolve().parents[1] / "data"
+_DATA = Path(config.DATA_DIR)
 _OPS_FILE = _DATA / "pending_ops.json"
 
 # action（确认卡动作）↔ tool id（注册表勾选；挂载与卸载共用 book_mount 授权）

@@ -21,10 +21,11 @@ _BACKEND_DIR = _PROJECT_ROOT / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+from app import config
 from app.ingestion.bookrun import RunOptions, run_book
 from app.store import Store
 
-_DATA_DIR = Path(__file__).resolve().parent
+_DATA_DIR = Path(config.DATA_DIR)
 _BOOKS_DIR = _DATA_DIR / "books"
 _MANIFEST_PATH = _DATA_DIR / "books_manifest.json"
 
