@@ -68,8 +68,8 @@ flowchart TB
 
     subgraph TRUTH["真值层 truth"]
         T1["Kuzu 图库 · app/data/kg/ · 7377 MB · ❌不入（构建产物）"]
-        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 9 / Book 30"]
-        T1b["关系表 KGREL 443101 条（书载观点 + 参与/触发/任职于 等语义边）"]
+        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 2046 / Book 30"]
+        T1b["关系表 KGREL 459417 条（书载观点 + 发生于 16320 + 参与/触发/任职于 等语义边）"]
         T2["书级产物 · data/ingest/&lt;id&gt;.json（大书提案真值源）、merges.json、kg/dangling_edges.json"]
         T1 --- T1a
         T1 --- T1b
@@ -190,7 +190,8 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 
 对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
-> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **443101 条**，其中大量是实体间语义边（参与 / 触发 / 任职于 …），其余为「书载观点」。
+> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **459417 条**，其中 16,320 条是
+> 地名 assimilation 补的 `Event-发生于->Place`，其余为书载观点与参与 / 触发 / 任职于 等语义边。
 > 仍有 **29 条悬空边**（种子用拼音 id `xiangyu`，而库里节点是中文名 id `项羽`），记在 `kg/dangling_edges.json`，不影响查询。
 > link（书载观点对齐到主干实体）提案曾恒为 0：主干快照只有名字集合、缺「归一化名 → id」映射，`_resolve_target` 永远匹配不上。已修（`known_from_store` 补 `person_name_ids` / `event_name_ids`），《资治通鉴》link 提案 0 → 62120 条。
 
@@ -529,13 +530,13 @@ flowchart LR
 | `Dynasty` | 84 | `id, name, span_s, span_e, color, cap_name, cap_lon, cap_lat, map_tile, grp, lane, emperors` | 朝代：起止年、都城经纬度、时间轴车道 |
 | `Event` | 138631 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
 | `Person` | 61355 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
-| `Place` | 9 | `id, name, ancient, modern, lon, lat, aliases` | 地名（**图内仅 9 条**；12.2 万条权威地名在数仓 `core_places`） |
+| `Place` | 2046 | `id, name, ancient, modern, lon, lat, aliases, external_ids, provenance` | 地名：9 条手工种子 + 2,037 条由事件派生（见 §10.10） |
 | `Book` | 30 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
 | `Source` | 68 | `sid, owner, level, work, text, translation, confidence, from_book` | 引文：`owner` 指回宿主实体 id |
 | `Institution` | 4 | `id, name, kind, function, dynasty_id, span_s, span_e, aliases` | 官制/机构 |
 | `Artifact` | 3 | `id, name, kind, material, era_text, year, date_conf, place_id, museum` | 文物 |
 | `Concept` | 4 | `id, name, kind, definition, dynasty_id, origin_year, aliases` | 制度/观念 |
-| `KGREL`（关系） | 443101 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`） |
+| `KGREL`（关系） | 459417 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`）。其中 16,320 条是 `Event-发生于->Place`（见 §10.12） |
 
 - **关系名目录 24 种**：`app/schema/ontology.py:241` `REL_TYPES`——参与、任职于、师承、发生于、触发、奠定、书载观点、继承自、包含、隶属、设于、下辖、出土于、年代属、铭文录为、提及、创立、推行、盛行于、从属。
 - **端点白名单**：同文件 `REL_PAIRS`（写边硬闸门 G1）。
@@ -589,6 +590,7 @@ flowchart TB
 | `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.7 |
 | `event_coords` | 16316 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
 | `place_nodes` | 2037 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
+| `event_place_edges` | 16316 | `event_id, place_id, rel, place, year, cbdb_addr_id, addr_name, how, confidence, via, batch, ts` | Event→Place 连边的证据与回滚依据，`via` 区分落到派生节点还是种子节点，见 §10.12 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -666,7 +668,7 @@ flowchart LR
 | Book 节点 | 30 本 | 图库已登记（27 主干 + 3 策展） |
 | **主干已挂载** | **27 本** | **26 史全部挂载完成**：史记、汉书、后汉书、三国志、晋书、宋书、南齐书、梁书、陈书、魏书、北齐书、周书、隋书、南史、北史、旧唐书、新唐书、旧五代史、新五代史、宋史、辽史、金史、元史、明史、资治通鉴、史通、读通鉴论 |
 | 扩展知识（不挂载） | 3 本 | 万历十五年（二级·研究观点）、大秦帝国（三级·文学演绎）、丝绸之路（二级·研究观点） |
-| 图库规模 | 边 443101 / 节点 200120 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询） |
+| 图库规模 | 边 459417 / 节点 202166 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询）；其中 16320 条是 Event→Place「发生于」 |
 
 ### 10.6 书库两层：主干 / 扩展知识
 
@@ -830,3 +832,41 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 
 > 提醒：新表要走 `_bulk_insert` 必须先登记到 `Warehouse._SCHEMAS`（列 + 类型），
 > 类型是显式给的，不用 `read_json_auto` 推断——避免 NULL 列被推成奇怪类型。
+
+### 10.12 把 Place 接进图：(Event)-[:发生于]->(Place)
+
+> 相关脚本：`link_event_place.py`（干跑 → 写入）、`verify_place_links.py`（校验）、
+> `rollback_place_links.py`（还原）。结果：**16,316 条新边**，图上合计 16,320 条，
+> 坐标一致性 16,320/16,320，2,037 个派生 Place **全部连通、零孤儿**。
+
+补完坐标（§10.8）和 Place 节点（§10.10）后，两者之间仍然**没有任何边**——
+Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工种子）。而 `Event.lon/lat`
+在 schema 里明确写着「由 `(Event)-[:发生于]->(Place)` 派生」，缺了这条边，
+「长安发生过哪些事」这种问题答不了，空间层只是散落的浮点数字。
+
+**不重算任何坐标**：判定完全沿用前两步已落地的证据表，所以本步不可能引入新错配。
+
+| 落点 | 条数 | 怎么定的 |
+|---|---|---|
+| 派生 Place（`place:<addr_id>`） | 13,818 | 按 `place_nodes.cbdb_addr_id` **以及 `external_ids.cbdb_all` 别名数组**反查 |
+| 既有种子 Place（拼音 id） | 2,498 | 名字精确匹配 + 坐标校验（≤0.5°）：长安→`changan` 1,762 / 洛阳→`luoyang` 506 / 南京→`nanjing` 227 |
+| 未解析 | 0 | — |
+
+两个坑与实践结论：
+
+1. **只按主 `cbdb_addr_id` 反查会漏 2,498 条**。Place 建点时把同坐标同名条目合并了
+   （如长安的 618~907 / 703~747 / 748~959 三条合成一个），合并掉的 id 留在
+   `external_ids.cbdb_all` 里。实测：主 id 只能对上 10,524 条，展开别名数组后 13,818 条。
+2. **三座都城得单列处理**。长安/洛阳/南京各有上千条事件，但 §10.10 定过
+   「与种子同名一律跳过」，所以它们没有 `place:N` 节点，必须由这一步按名字接到
+   已有种子上（种子 `ancient` 列存着「蓟 / 幽州 / 范阳 / 中都 / 大都 / 京师」等比 CBDB
+   更全的称谓串，保留种子是对的）。接之前过了坐标校验这道闸，防止同名异地错连。
+
+**安全**：默认干跑、`--apply` 才写；`from_book` 留 NULL（这一层不属于任何一本书，
+卸载书籍时由 `DETACH DELETE` 一并清掉）；证据落数仓 `event_place_edges`，
+`rollback_place_links.py` 按 batch 还原，且**只删本脚本写过的边**——手工种子那 4 条
+老边（如 `yangshao_rise -发生于-> yangshao_v`）不在证据表里，不受影响。
+
+> 小注：`event_place_edges` 的写入走的是逐行绑定（16k 行约 7 分钟，见 §10.11 的
+> 3000 倍陷阱）。一次性运维脚本，先留着；若以后常跑，再登记进 `Warehouse._SCHEMAS`
+> 改走 `_bulk_insert`。
