@@ -26,6 +26,7 @@ import kuzu
 
 from app import config
 from app.data import seed
+from app.extended_books import CANONICAL, EXTENDED, scope_of
 from app.warehouse import warehouse
 from app.schema.ontology import (
     Book, Dynasty, Event, Extract, Institution, Artifact, Concept,
@@ -679,6 +680,7 @@ class Store:
             k: [Source.model_validate(s) for s in v]
             for k, v in read(_F_SOURCES).items()
         }
+        self._apply_scopes()
         self._index_invalidate()
 
     def _bootstrap(self) -> None:
@@ -695,7 +697,29 @@ class Store:
             for a, b, rel in seed.EDGES
         ]
         self._load_ontology_extra()
+        self._apply_scopes()
         self._index_invalidate()
+
+    def _apply_scopes(self) -> None:
+        """给书目打分层标记：canonical（主干）/ extended（策展，禁挂载）。
+
+        scope 不落 Kuzu（0.11 不支持 ALTER ADD COLUMN），凡是书籍列表被整体替换
+        或新增书的地方都要记得调一次——漏了就会退化成 canonical，进而允许挂载，
+        目前四个入口（载入 / 冷启动 seed / 遗留 JSON / 回收站恢复）都已调。
+
+        顺带补齐策展书的内联提案：主干书的提案有 ingest 产物文件兜底（那一列被
+        写成 [] 也能回落读文件），**策展书没有产物文件**，提案只存在这一列里。
+        历史上它一旦被写成 []，seed 里的手工提案就永久丢了，前端只会显示 0 张
+        卡片——而这两层书永远不挂载、不会再有新的抽取结果。所以这里以 seed 为
+        基线补齐内存（为空才补，不覆盖库里已有的内容）。
+        """
+        seed_map = {b.id: b for b in seed.BOOKS}
+        for b in self.books:
+            b.scope = scope_of(b.id)
+            if b.scope == EXTENDED and not b.extracts:
+                base = seed_map.get(b.id)
+                if base and base.extracts:
+                    b.extracts = [x.model_copy(deep=True) for x in base.extracts]
 
     def _load_ontology_extra(self) -> None:
         """本体深化样例：Institution / Artifact / Concept 及类型化边（幂等）。"""
@@ -1168,6 +1192,7 @@ class Store:
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Book")]
+        self._apply_scopes()
         self._index_invalidate()      # 实体列表整体换过，索引缓存作废
 
         def _load_new(label: str, cls, extra: dict):
@@ -1482,6 +1507,7 @@ class Store:
             if chs:
                 self.set_chunks(book_id, chs)
         self.books.append(book)
+        self._apply_scopes()
         self._index_put(book.id, "Book")
         self.save()
         # 恢复成功后清理回收快照目录
@@ -1496,6 +1522,11 @@ class Store:
     # ================= 动态本体写操作（Action Types） =================
     def commit_book(self, book: Book, accepted: list[bool], *, persist: bool = True) -> dict:
         """挂载：按 accepted 位图写入本体并落盘（内存变更 + save 同一临界区）。"""
+        if getattr(book, "scope", CANONICAL) == EXTENDED:
+            raise ValueError(
+                f"《{book.title}》是策展书（扩展知识），不入主干本体："
+                f"叙述多为观点或文学虚构，挂上去会让小说情节成为可与正史并列的引用。"
+                f"确需入主干，先把它从 data/book_scopes.json 的名单里移除。")
         with self.transaction():
             return self._commit_locked(book, accepted, persist=persist)
 

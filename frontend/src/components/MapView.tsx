@@ -155,7 +155,9 @@ export default function MapView({
       const zoom = map.getZoom();
       const cellPx = zoom <= 4 ? 42 : zoom <= 6 ? 22 : 0;
       if (cellPx > 0) {
-        const buckets = new Map<string, EventItem[]>();
+        // 桶里装的都是 located（已确保 lat/lon 非 null），用带收窄的声明，
+        // 否则聚合求均值时 TS 会认为坐标可能为 null
+        const buckets = new Map<string, (EventItem & { lon: number; lat: number })[]>();
         located.forEach((e) => {
           const [la, lo] = cv(e.lat, e.lon);
           const pt = map.latLngToContainerPoint([la, lo]);
@@ -187,7 +189,7 @@ export default function MapView({
       }
     };
 
-    const addSingle = (e: EventItem) => {
+    const addSingle = (e: EventItem & { lon: number; lat: number }) => {
       const selected = selectedId === e.id;
       const hl = highlightIds.includes(e.id);
       const cls = `${selected ? "selected" : hl ? "hl" : ""} ${dimOthers && !selected && !hl ? "dim" : ""}`;

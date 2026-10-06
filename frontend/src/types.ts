@@ -134,6 +134,8 @@ export interface Book {
   accepted?: boolean[] | null;
   /** builtin=内置书源（不可删除）；upload=界面上传（可删除） */
   origin?: "builtin" | "upload";
+  /** canonical=主干史料（可挂载进本体）；extended=策展书（扩展知识，禁挂载、不入主干） */
+  scope?: "canonical" | "extended";
   extracts: Extract[];
 }
 

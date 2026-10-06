@@ -174,6 +174,11 @@ class Book(_Governed):
     mounted: bool = False
     # 书籍来源：builtin=内置 seed；upload=用户界面/CLI 上传
     origin: str = "builtin"
+    # 书籍分层：canonical=主干史料（可挂载，写入主干本体）；
+    # extended=扩展知识（策展书，**禁挂载**，只作书卡与观点卡片）。
+    # 判定来自 app/extended_books.py，**不落 Kuzu**（0.11 不支持 ALTER ADD COLUMN，
+    # 见该模块注释），由 Store 载入时按 id 赋值。
+    scope: str = "canonical"
     # 上传书籍的服务端存储文件名（仅 origin=upload）
     file: Optional[str] = None
     # 最近一次挂载时用户确认的提案位图（卸载撤销时按原位图重放）

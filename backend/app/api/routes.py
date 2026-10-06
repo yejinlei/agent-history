@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from langgraph.types import Command
 
 from app.store import store, _LIB_FILES
+from app.extended_books import CANONICAL, EXTENDED
 from app.warehouse import warehouse
 from app import config
 from app.schema.ontology import REL_TYPES, Book as BookModel
@@ -699,6 +700,8 @@ def book_dict(b) -> dict:
             "mounted": b.mounted,
             "origin": getattr(b, "origin", "builtin"),
             "accepted": getattr(b, "accepted", None),
+            # canonical=主干史料（可挂载）；extended=策展书（扩展知识，不入主干）
+            "scope": getattr(b, "scope", "canonical"),
             "extracts": [x.model_dump() for x in b.extracts]}
 
 
@@ -859,6 +862,12 @@ def mount_start(body: MountStartIn):
     book = next((b for b in store.books if b.id == body.book_id), None)
     if book is None:
         raise HTTPException(404, "book not found")
+    if getattr(book, "scope", CANONICAL) == EXTENDED:
+        # 闸门：策展书只作扩展知识展示，提案（含 link 对齐）一律不写进主干本体
+        raise HTTPException(
+            400, f"《{book.title}》是策展书（扩展知识层），不挂载入主干："
+                 f"其提案是观点/文学叙述，写入会让它们成为可与正史并列的引用。"
+                 f"确需入主干，先从 data/book_scopes.json 名单中移除该书。")
     if book.mounted:
         raise HTTPException(400, "book already mounted; unmount first")
     thread_id = f"mount-{book.id}-{uuid.uuid4().hex[:8]}"

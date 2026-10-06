@@ -162,14 +162,20 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
       return { ...m, [bid]: { ...s, accepted } };
     });
 
-  const mountedN = books.filter((b) => b.mounted).length;
+  // 扩展知识层（策展书）：不入主干，不参与挂载计数，也不给挂载入口
+  const mainBooks = books.filter((b) => b.scope !== "extended");
+  const extBooks = books.filter((b) => b.scope === "extended");
+  const mountedN = mainBooks.filter((b) => b.mounted).length;
+  // 策展书角标：level 2=研究专著，3=文学演绎（与主干书共用一个等级字段）
+  const extTag = (lv: number) =>
+    ["", "一级史料", "二级·研究观点", "三级·文学演绎"][lv] ?? "扩展读物";
   // 最近一条未撤销动作是否可撤销
   const lastUndoable = [...acts].reverse().find((e) => !e.undone && e.action !== "action.undo");
 
   return (
     <div>
       <div className="sec-t" style={{ marginTop: 0 }}>
-        动态本体挂载 · 书库（{mountedN}/{books.length} 已挂载到历史主线）
+        动态本体挂载 · 主干书库（{mountedN}/{mainBooks.length} 已挂载到历史主线）
       </div>
       <div
         style={{
@@ -201,7 +207,7 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
         {uploadErr && <div className="dispute">{uploadErr}</div>}
       </div>
 
-      {books.map((b) => {
+      {mainBooks.map((b) => {
         const st = ui[b.id];
         const lvlName = ["", "一级史料", "二级·研究", "三级·文学/科普"][b.level];
         const isUpload = b.origin === "upload";
@@ -319,6 +325,79 @@ export default function BookMount({ books, pipelineStages, onChanged, onView }: 
           </div>
         );
       })}
+
+      {/* 扩展知识层：策展书不入主干，只作观点卡片 */}
+      {extBooks.length > 0 && (
+        <>
+          <div className="sec-t">扩展阅读 · 不入主干</div>
+          <div
+            style={{
+              fontSize: 12, color: "var(--text-2)", background: "var(--surface-2)",
+              border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px",
+              marginBottom: 12, lineHeight: 1.75,
+            }}
+          >
+            这一栏是学术专著、历史小说与科普读物——其中的叙述是<b>观点</b>而非史事。
+            挂载会让小说情节变成可与《史记》并列的引用、污染主干证据链，
+            因此它们<b>不写入本体</b>：没有人物/事件节点，没有边，只以
+            <b>观点卡片</b>附在这里供对照阅读。卡片标注了可信度，
+            「对齐」类可回到主干实体查看正史原文。
+          </div>
+          {extBooks.map((b) => (
+            <div key={b.id} className="book">
+              <div className="book-top">
+                <div className="book-sp" style={{ background: b.color }}>{b.title.slice(0, 1)}</div>
+                <div className="book-info">
+                  <h4>
+                    {b.title}
+                    <span className={`lvl lvl-${b.level}`}>{extTag(b.level)}</span>
+                    <span className="mbadge">扩展知识</span>
+                  </h4>
+                  <div className="au">
+                    {b.author} · {b.year} · {b.extracts.length} 张观点卡片
+                  </div>
+                  <div className="book-tags">
+                    {b.tags.map((t) => <span key={t} className="t">#{t}</span>)}
+                  </div>
+                  <div className="book-desc">{b.description}</div>
+                  {b.extracts.map((x, i) => (
+                    <div key={i} className={`prop ${x.confidence < 0.5 ? "low" : ""}`}>
+                      <span
+                        className="kind-ic"
+                        style={{
+                          background:
+                            x.kind === "person" ? "var(--gold)"
+                            : x.kind === "event" ? "var(--brand)" : "var(--purple)",
+                        }}
+                      >
+                        {x.kind === "person" ? "人" : x.kind === "event" ? "事" : "挂"}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="pname">{x.name}</div>
+                        <div className="pdesc">{x.summary}</div>
+                        <div className="pmeta">
+                          {x.kind === "link"
+                            ? "对齐到主干实体" + (x.target_id ? `（${x.target_id}）` : "")
+                            : x.kind === "event" ? "书中提出的解释性事件"
+                            : "书中刻画的人物"}
+                          {x.confidence < 0.5 ? " · 低可信，仅作观点参考" : ""}
+                        </div>
+                      </div>
+                      <span className="pconf">{(x.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                  <div className="mount-stats">
+                    不写入主干本体（无实体节点、无关系边），仅作对照阅读
+                  </div>
+                  <div className="book-actions">
+                    <button className="btn ghost" onClick={() => onView(b)}>前往该书年代查看</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
 
       {/* 数据治理：疑似重复 + 操作日志（单步撤销） */}
       <div className="sec-t">数据治理</div>
