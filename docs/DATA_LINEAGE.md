@@ -588,6 +588,7 @@ flowchart TB
 | `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
 | `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.7 |
 | `event_coords` | 16316 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
+| `place_nodes` | 2037 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -652,6 +653,7 @@ flowchart LR
 | `book_scopes.json` | 扩展知识（策展书）名单——列进去的书**不入主干**，见 §10.6（文件不存在时只用内置名单） |
 | `core/normalized/chgis_coords.jsonl` | 从 CHGIS 原始 ZIP 救回的 12.2 万条地名坐标（写盘前逐行校验不许错位），见 §10.8 |
 | `core/normalized/event_coord_candidates.jsonl` | 地名 assimilation 的候选清单（`enrich_event_coords.py` 干跑产物，供人工抽查） |
+| `core/normalized/place_node_candidates.jsonl` | Place 节点候选清单（`enrich_place_nodes.py` 干跑产物，含每个地点的被引用次数） |
 | `emperors.json` / `maps.json` / `ontology_extra.json` / `seed.py` | 帝王表 / 底图配置 / 本体扩展 / 种子数据 |
 | `_wmts_*.xml|json`、`_hm_*.html|json` | 瓦片服务能力与朝代页面的抓取缓存 |
 
@@ -777,3 +779,54 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 只是 docstring 里写了"不要 --apply"的警示）与 `person_golden_test.py`（量化评测工具）。
 若将来引入更权威的籍贯源（如 Wikidata 的 place of birth、CBDB 更细的地址类型），
 改完后先跑黄金集，**过 90% 再开闸**。
+
+### 10.10 Place 节点：给图补上地点这一层（2,037 个）
+
+图库原本只有 **9 个 Place**（都城/遗址的手工种子），地点一直没有实体化的第三层。
+本轮从 CBDB 补了 **2,037 个**，图内 Place 达 **2,046 个**。
+
+**候选范围**：只收录**被图上事件引用到**的地址条目——判定口径与事件坐标完全一致
+（同名 + 繁简归一 + 事件年份落在地名年代区间），所以每个新建 Place 背后都有至少 1 条
+真实事件支撑，不会出现凭空冒出来的孤立地点。
+
+| 校验项 | 结果 |
+|---|---|
+| 缺坐标 | 0 个 |
+| id 重复 | 0 个 |
+| 与 9 个种子同名（会产生两个「长安」） | 0 个 |
+| JSON 列（aliases / external_ids）解析失败 | 0 次 |
+| 与副本一致性 | 图库 2,046 ↔ 副本 2,046 ↔ 证据表 2,037 |
+
+两处刻意的"抠门"：
+
+1. **同名同坐标自动合并**：CBDB 里「长安」有 618~907 / 703~747 / 748~959 三条不同
+   年代、坐标一模一样的条目，照单全收会在前端出现三个长安。按 `(简体名, 坐标)`
+   合并成 1 个，年代取并集，累计合并掉 826 条。
+2. **与种子同名一律跳过**：种子节点的 `ancient` 列存的是历代称谓串
+   （北京＝蓟 / 幽州 / 范阳 / 中都 / 大都 / 京师），比 CBDB 单条更全，保留种子优先。
+
+**Kuzu 不能加列带来的取舍**：地名条目的起止年无处可放（见 §10.6 的 ALTER 限制），
+所以 `beg_year/end_year` 只进数仓 `place_nodes` 表，图库里靠 `external_ids.cbdb` 反查。
+
+### 10.11 踩到一个隐藏很深的写入性能陷阱（50 分钟 → 1 秒）
+
+修完坐标后跑副本重灌，20 万行跑了 20 分钟还没完。抽丝剥茧的结论出乎意料：
+
+| 假设 | 实测 |
+|---|---|
+| 索引/主键拖慢写入 | ❌ 错了：全裸表（无 PK 无索引）也是 52 行/秒 |
+| 磁盘慢 | ❌ 错了：顺序写 2.6 GB/s；Defender 实时保护本就关着 |
+| 每条语句一个事务 | ❌ 错了：改成单事务后仍是 68 行/秒 |
+| 批量 VALUES 能救 | ❌ 错了：200 / 1000 / 5000 行每批，全都 ~65 行/秒 |
+| **Python 参数绑定本身慢** | ✅ **就是它**：~65 行/秒，每行 15 ms |
+| 让引擎自己装载（JSONL + read_json） | ✅ **192,305 行/秒**，快 3000 倍 |
+
+本机 DuckDB 1.5.6 + Python 客户端下，`executemany` 和「拼接 VALUES」都退化成逐行开销。
+于是把三处批量写（`replace_chunks` / `replace_entities` / `upsert_entities`）
+统一改走 `Warehouse._bulk_insert()`：**行写成临时 JSONL → read_json 显式列类型装载**。
+
+效果：副本重灌 199,995 行从 **~50 分钟 → 1 秒**。这同时解释了"服务为什么启动那么慢"——
+起服时的 `replace_entities` 走的就是这条慢路径，而今没有了。
+
+> 提醒：新表要走 `_bulk_insert` 必须先登记到 `Warehouse._SCHEMAS`（列 + 类型），
+> 类型是显式给的，不用 `read_json_auto` 推断——避免 NULL 列被推成奇怪类型。
