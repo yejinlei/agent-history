@@ -679,6 +679,7 @@ class Store:
             k: [Source.model_validate(s) for s in v]
             for k, v in read(_F_SOURCES).items()
         }
+        self._index_invalidate()
 
     def _bootstrap(self) -> None:
         """冷启动：从内置 seed 把本体节点与类型化边写入持久层。"""
@@ -694,6 +695,7 @@ class Store:
             for a, b, rel in seed.EDGES
         ]
         self._load_ontology_extra()
+        self._index_invalidate()
 
     def _load_ontology_extra(self) -> None:
         """本体深化样例：Institution / Artifact / Concept 及类型化边（幂等）。"""
@@ -720,6 +722,21 @@ class Store:
 
     # ================= 边写入与目录校验 =================
     def _label_index(self) -> dict[str, str]:
+        """id → 标签表的索引（**带缓存**，勿在循环里反复重建）。
+
+        add_edge 每写一条边都要查端点标签，而挂载一本书会写几万条边；若每条边
+        都重建一个近 9 万条目的 dict，既慢又吃内存——宋史 49069 条提案挂载时就是
+        这样 MemoryError 的（实测爆在 `idx[o.id] = table`，系统 31 GB 内存、
+        可用 12 GB 仍不够）。所以这里缓存 + 实体增删时增量维护（_index_put）；
+        万一漏登记，add_edge 查不到时会兜底重建一次，不会误判端点不存在。
+        """
+        idx = getattr(self, "_label_index_cache", None)
+        if idx is None:
+            idx = self._rebuild_label_index()
+            self._label_index_cache = idx
+        return idx
+
+    def _rebuild_label_index(self) -> dict[str, str]:
         idx = {}
         for table, objs in (("Dynasty", self.dynasties), ("Event", self.events),
                             ("Person", self.people), ("Place", self.places),
@@ -732,12 +749,25 @@ class Store:
                 idx[f"{owner}#{i}"] = "Source"
         return idx
 
+    def _index_put(self, oid: str, table: str) -> None:
+        """新增实体登记进索引：否则下一条边就会触发整表重建。"""
+        self._label_index()[oid] = table
+
+    def _index_invalidate(self) -> None:
+        """实体列表被整体替换或批量删除后调用：缓存不可再用。"""
+        self._label_index_cache = None
+
     def add_edge(self, a: str, b: str, rel: str, *,
                  confidence: float = 0.7, src_ids: list[str] | None = None,
                  from_book: str | None = None) -> dict:
         """写边唯一入口：端点必须存在，且端点组合落在 REL_PAIRS 目录内。"""
         labels = self._label_index()
         la, lb = labels.get(a), labels.get(b)
+        if not la or not lb:
+            # 缓存滞后（实体刚加入但没登记）：重建一次再判定，代价只此一次
+            self._index_invalidate()
+            labels = self._label_index()
+            la, lb = labels.get(a), labels.get(b)
         if not la or not lb:
             raise ValueError(f"端点不存在：{a} / {b}")
         if (la, lb) not in REL_PAIRS:
@@ -1138,6 +1168,7 @@ class Store:
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
             version=d.get("version") or 1)
             for d in nodes("Book")]
+        self._index_invalidate()      # 实体列表整体换过，索引缓存作废
 
         def _load_new(label: str, cls, extra: dict):
             if not self._has_table(label):
@@ -1425,6 +1456,7 @@ class Store:
         (tdir / "chunks.json").write_text(
             _j(self.chunks_of(book.id)), encoding="utf-8")
         self.books = [b for b in self.books if b.id != book.id]
+        self._index_invalidate()
         self.drop_chunks(book.id)
         self.save()
         return tdir
@@ -1450,6 +1482,7 @@ class Store:
             if chs:
                 self.set_chunks(book_id, chs)
         self.books.append(book)
+        self._index_put(book.id, "Book")
         self.save()
         # 恢复成功后清理回收快照目录
         try:
@@ -1505,6 +1538,7 @@ class Store:
                         from_book=book.id, book_sources=[src])
                     self.people.append(p)
                     p_index[node_id] = p
+                    self._index_put(node_id, "Person")
                     added["person"] += 1
             elif ext.kind == "event":
                 node_id = ext.new_id
@@ -1534,6 +1568,7 @@ class Store:
                         from_book=book.id, book_sources=[src])
                     self.events.append(ev)
                     e_index[node_id] = ev
+                    self._index_put(node_id, "Event")
                     added["event"] += 1
             elif ext.kind == "link":
                 # 对齐到主干实体：目标可能是人或事，只按事件找会把「对齐到人物」
@@ -1601,6 +1636,7 @@ class Store:
                 if bs:
                     obj.book_sources = [s for s in bs if s.from_book != book.id]
         self.edges = [e for e in self.edges if e.get("from_book") != book.id]
+        self._index_invalidate()      # 实体已移除，索引缓存必须作废
         book.mounted = False
         # 此刻磁盘已不含该书任何行，快照也已对齐 → 本次 save 只会写 Book 节点
         # 的 mounted 翻转与残留 book_sources 变更，并清掉 DuckDB 实体副本。
