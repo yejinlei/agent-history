@@ -79,15 +79,24 @@ def mount_one(bid: str) -> bool:
     except urllib.error.HTTPError as e:
         print("  start 失败：%s %s" % (e.code, e.read().decode("utf-8")[:200]), flush=True)
         return False
-    n = len(st.get("proposals") or [])
+    props = st.get("proposals") or []
+    n = len(props)
     print("  start：提案 %d 条，warnings=%s" % (n, st.get("warnings")), flush=True)
     if not n:
         print("  提案为 0，跳过", flush=True)
         return False
+    # 与 _build_all.py / 界面默认勾选同一口径：只接受 default_accepted
+    # （置信度 ≥40%），低置信的句读碎片不进图
+    kinds: dict[str, int] = {}
+    for p in props:
+        kinds[p.get("kind") or "?"] = kinds.get(p.get("kind") or "?", 0) + 1
+    acc = [bool(p.get("default_accepted", True)) for p in props]
+    print("  提案构成 %s，接受 %d / %d"
+          % (kinds, sum(1 for x in acc if x), n), flush=True)
 
     try:
         res = _post("/api/mounts/commit",
-                    {"thread_id": st["thread_id"], "accepted": [True] * n})
+                    {"thread_id": st["thread_id"], "accepted": acc})
     except urllib.error.HTTPError as e:
         print("  commit 失败：%s %s" % (e.code, e.read().decode("utf-8")[:300]), flush=True)
         return False

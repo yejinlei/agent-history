@@ -67,9 +67,9 @@ flowchart TB
     end
 
     subgraph TRUTH["真值层 truth"]
-        T1["Kuzu 图库 · app/data/kg/ · 3472 MB · ❌不入（构建产物）"]
-        T1a["节点表 Dynasty 84 / Event 54981 / Person 23879 / Place 9 / Book 19 / Source 68"]
-        T1b["关系表 KGREL 145626 条（书载观点 + 参与/触发/任职于 等语义边）"]
+        T1["Kuzu 图库 · app/data/kg/ · 7377 MB · ❌不入（构建产物）"]
+        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 9 / Book 30"]
+        T1b["关系表 KGREL 443101 条（书载观点 + 参与/触发/任职于 等语义边）"]
         T2["书级产物 · data/ingest/&lt;id&gt;.json（大书提案真值源）、merges.json、kg/dangling_edges.json"]
         T1 --- T1a
         T1 --- T1b
@@ -162,9 +162,9 @@ flowchart LR
 | 原始·模型 | `models/` | 94.8 MB | ✅ | 中 |
 | 原始·主干大件 | `app/data/core/raw/` | 857.8 MB | ❌（CBDB 单文件 837 MB > GitHub 100 MB 硬限） | 中：`fetch_core.py` 按 `manifest.json` 重下 |
 | 派生·主干精简 | `app/data/core/normalized/` | 87 MB | ✅ | 低：`extract_core.py` |
-| 构建·图库 | `app/data/kg/` | 3472 MB | ❌ | 中高（可从数仓 `extract_raw` 重挂） |
-| 构建·数仓 | `app/data/warehouse/` | 589 MB | ❌ | **高**（`extract_raw` 是 LLM 调用结果） |
-| 过程产物·提案 | `app/data/ingest/` | 66.9 MB | ❌ | 低——**只要 `extract_raw` 还在**，收口即可重出；`extract_raw` 丢了才要重跑 LLM（贵） |
+| 构建·图库 | `app/data/kg/` | 7377 MB | ❌ | 中高（可从数仓 `extract_raw` 重挂） |
+| 构建·数仓 | `app/data/warehouse/` | 592 MB | ❌ | **高**（`extract_raw` 是 LLM 调用结果） |
+| 过程产物·提案 | `app/data/ingest/` | 144 MB | ❌ | 低——**只要 `extract_raw` 还在**，收口即可重出；`extract_raw` 丢了才要重跑 LLM（贵） |
 | 过程产物 | `library/`、`merges.json`、`pending_ops.json` | <1 MB | ❌ | 低 |
 
 ---
@@ -190,7 +190,7 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 
 对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
-> 现状提醒（已更新）：语义边已补齐——KGREL 共 **145626 条**，其中约 3.95 万是实体间语义边（参与 23025 / 触发 3176 / 任职于 1994 …），其余为「书载观点」。
+> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **443101 条**，其中大量是实体间语义边（参与 / 触发 / 任职于 …），其余为「书载观点」。
 > 仍有 **29 条悬空边**（种子用拼音 id `xiangyu`，而库里节点是中文名 id `项羽`），记在 `kg/dangling_edges.json`，不影响查询。
 > link（书载观点对齐到主干实体）提案曾恒为 0：主干快照只有名字集合、缺「归一化名 → id」映射，`_resolve_target` 永远匹配不上。已修（`known_from_store` 补 `person_name_ids` / `event_name_ids`），《资治通鉴》link 提案 0 → 62120 条。
 
@@ -527,15 +527,15 @@ flowchart LR
 | 表 | 行数 | 关键列 | 用途 |
 |---|---|---|---|
 | `Dynasty` | 84 | `id, name, span_s, span_e, color, cap_name, cap_lon, cap_lat, map_tile, grp, lane, emperors` | 朝代：起止年、都城经纬度、时间轴车道 |
-| `Event` | 54981 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
-| `Person` | 23879 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
+| `Event` | 138631 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
+| `Person` | 61355 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
 | `Place` | 9 | `id, name, ancient, modern, lon, lat, aliases` | 地名（**图内仅 9 条**；12.2 万条权威地名在数仓 `core_places`） |
-| `Book` | 19 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
+| `Book` | 30 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
 | `Source` | 68 | `sid, owner, level, work, text, translation, confidence, from_book` | 引文：`owner` 指回宿主实体 id |
 | `Institution` | 4 | `id, name, kind, function, dynasty_id, span_s, span_e, aliases` | 官制/机构 |
 | `Artifact` | 3 | `id, name, kind, material, era_text, year, date_conf, place_id, museum` | 文物 |
 | `Concept` | 4 | `id, name, kind, definition, dynasty_id, origin_year, aliases` | 制度/观念 |
-| `KGREL`（关系） | 145626 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`） |
+| `KGREL`（关系） | 443101 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`） |
 
 - **关系名目录 24 种**：`app/schema/ontology.py:241` `REL_TYPES`——参与、任职于、师承、发生于、触发、奠定、书载观点、继承自、包含、隶属、设于、下辖、出土于、年代属、铭文录为、提及、创立、推行、盛行于、从属。
 - **端点白名单**：同文件 `REL_PAIRS`（写边硬闸门 G1）。
@@ -586,7 +586,7 @@ flowchart TB
 | `core_persons` | 535180 | `id, name, year_birth, year_death, index_year, dynasty, female, external_ids` | 主干权威源（CBDB），**未进图** |
 | `core_places` | 122075 | `id, name, modern, pinyin, kind, year_beg, year_end, external_ids` | 主干权威源（CHGIS），**未进图** |
 | `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
-| `entities` | 0* | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；服务启动与挂载后按差异同步（实测单本 44447 行），*当前服务未跑完同步故为空，起服即重灌 |
+| `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.6 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -656,8 +656,16 @@ flowchart LR
 | 口径 | 数量 | 说明 |
 |---|---|---|
 | 原文 | 27 本 | `books/` |
-| 提案产物 | 20 本 | `ingest/` |
-| Book 节点 | 19 本 | 图库已登记 |
-| **已挂载** | **15 本** | 史记、资治通鉴、三国志、北齐书、陈书、周书、梁书、史通、南史、南齐书、北史、新五代史、辽史、宋书、隋书 |
-| 产物已出、未挂载 | 5 本 | 后汉书、旧五代史、新唐书、读通鉴论、汉书（产物不完整，将重跑） |
-| 未构建 | 7 本 | 金史、晋书、旧唐书、明史、宋史、魏书、元史 |
+| 提案产物 | 27 本 | `ingest/`（144 MB） |
+| Book 节点 | 30 本 | 图库已登记（26 史 + 万历十五年 / 大秦帝国 / 丝绸之路 三本策展书） |
+| **已挂载** | **27 本** | **26 史全部挂载完成**：史记、汉书、后汉书、三国志、晋书、宋书、南齐书、梁书、陈书、魏书、北齐书、周书、隋书、南史、北史、旧唐书、新唐书、旧五代史、新五代史、宋史、辽史、金史、元史、明史、资治通鉴、史通、读通鉴论 |
+| 未挂载 | 3 本 | 万历十五年、大秦帝国、丝绸之路（策展书，按需手动挂载） |
+| 图库规模 | 边 443101 / 节点 200120 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询） |
+
+### 10.6 本轮构建踩到的三个坑（都已修）
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| 《读通鉴论》挂载必现 500 | `Book.extracts` 把 26 MB 提案整包内联进节点，Kuzu 扫描要整页 pin 住 → `buffer pool is full` | 提案 >300 条不内联，真值源落 `ingest/<id>.json`，读取回落 |
+| 《旧五代史》《新唐书》副本整本丢失 | 人物 id 就是名字（「王饶」），两本书各建一条同 id Person → 投影到副本主键冲突 → **整批 INSERT 失败** | `commit_book` 按 id 查索引，已存在就并入证据（`person_merged`）；副本写入前按 `(kind, entity_id)` 去重 |
+| 《宋史》挂载 500（MemoryError） | `_label_index()` 每写一条边重建一次 9 万条目的 dict，49069 条提案 → 内存爆 | 索引改缓存 + 增量维护，实体增删时登记/作废；查不到时兜底重建 |
