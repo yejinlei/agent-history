@@ -64,7 +64,9 @@ _RANK = {"Du": 0, "Fu": 1, "Zhou": 2, "Jun": 3, "Xian": 4, "xian": 4,
 
 # 判定名单统一在 app/geo_rules.py——早先各脚本自己抄一份，结果写死简体的黑名单
 # 遇繁体写法（京師）直接漏判，这里只保留一处真值源。
-from app.geo_rules import addr_is_bad, blocked_everywhere, blocked_when_relaxed  # noqa: E402
+from app.geo_rules import (addr_is_bad, blocked_everywhere, blocked_when_relaxed,  # noqa: E402
+                           suffix_variants, too_broad, prov_level,
+                           SUFFIX_BLOCK_ADMIN)
 
 
 def log(m: str) -> None:
@@ -120,6 +122,46 @@ def match_event(idx: dict[str, list[tuple]], place: str, year: int | None,
     relaxed_gap > 0 时开放「放宽档」：事件年份没落在词条年代区间、但词表里同名
     只有这一条且相差不超过 relaxed_gap 年，就采纳。**严格档行为完全不变**。
     """
+    lv, rec = _match_core(idx, place, year, relaxed_gap)
+    if lv in ("miss", "out_of_window", "ambig_unresolved"):
+        return _match_suffix(idx, place, year, relaxed_gap)
+    return lv, rec
+
+
+def _match_suffix(idx: dict[str, list[tuple]], place: str, year: int | None,
+                  relaxed_gap: int):
+    """后缀归一化：图上写法与 CBDB 词条差一个行政后缀时补一把。
+
+    判据与严格档一样硬（年代窗口 + 坐标唯一），只是名字多试几个变体；另外
+    geo_rules 里划了两条红线：单字地名不猜、省级单位不写（见那里的注释）。
+    变体之间一旦给出不同坐标就算歧义，不猜。
+    """
+    if blocked_when_relaxed(place) or prov_level(place):
+        return "blocked_movable", None
+    variants = suffix_variants(place)
+    if not variants:
+        return "miss", None
+    found: list[tuple] = []
+    for v in variants:
+        cands = [r for r in idx.get(v, [])
+                 if not addr_is_bad(r[5])
+                 and not too_broad(r[6])
+                 and (r[4] or "") not in SUFFIX_BLOCK_ADMIN]
+        if not cands:
+            continue
+        lv, rec = _match_core_idx(cands, year, relaxed_gap, place)
+        if rec is not None:
+            found.append((lv, rec))
+    if not found:
+        return "miss", None
+    coords = {(round(r[1][2], 3), round(r[1][3], 3)) for r in found}
+    if len(coords) > 1:
+        return "suffix_ambig", None
+    return f"suffix_{found[0][0]}", found[0][1]
+
+
+def _match_core(idx: dict[str, list[tuple]], place: str, year: int | None,
+                relaxed_gap: int):
     if blocked_everywhere(place):
         return "blocked_movable", None
     # CBDB 里已知坐标错误的条目，任何档位都不采用（如 4042《益州》被打到了吉林）
@@ -127,6 +169,12 @@ def match_event(idx: dict[str, list[tuple]], place: str, year: int | None,
              if not addr_is_bad(r[5])]
     if not cands:
         return "miss", None
+    return _match_core_idx(cands, year, relaxed_gap, place)
+
+
+def _match_core_idx(cands: list[tuple], year: int | None, relaxed_gap: int,
+                    place: str):
+    """对一组候选做统一的「年代 + 坐标」判定——严格档与后缀档共用。"""
     if year is not None:
         pool = [r for r in cands
                 if r[0] is not None and r[1] is not None and r[0] <= year <= r[1]]
@@ -217,7 +265,8 @@ def main() -> int:
     for eid, place, year, lon, lat in rows:
         lv, rec = match_event(idx, place, year, a.relaxed_gap)
         stat[lv] += 1
-        accepted = lv.startswith("ok_") or lv.startswith("relaxed_")
+        accepted = (lv.startswith("ok_") or lv.startswith("relaxed_")
+                    or lv.startswith("suffix_ok_") or lv.startswith("suffix_relaxed_"))
         if not accepted or rec is None:
             continue
         hits.append({
@@ -230,7 +279,9 @@ def main() -> int:
 
     total = sum(stat.values())
     ok = sum(stat[k] for k in stat
-             if k.startswith("ok_") or k.startswith("relaxed_"))
+             if k.startswith("ok_") or k.startswith("relaxed_")
+             or k.startswith("suffix_ok_")
+             or k.startswith("suffix_relaxed_"))
     log("匹配统计：")
     for k, v in stat.most_common():
         log(f"  {k:<22} {v:>8,}  {v / total * 100:>5.1f}%")

@@ -139,8 +139,9 @@ def main() -> int:
         # 与时事事件坐标同一条口径：判定必须一致，否则会造出「事件有坐标、
         # 却找不到对应 Place 节点」的半截状态
         lv, rec = match_fn(idx, place, year, a.relaxed_gap)
-        if rec is None or not (lv.startswith("ok_")
-                               or lv.startswith("relaxed_")):
+        if rec is None or not any(lv.startswith(p) for p in
+                                  ("ok_", "relaxed_", "suffix_ok_",
+                                   "suffix_relaxed_")):
             continue
         ref[rec[5]] += 1
     c = None                      # 释放读连接即可，db 要留给写阶段复用

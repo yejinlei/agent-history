@@ -14,12 +14,12 @@ from app import config                                    # noqa: E402
 import kuzu                                               # noqa: E402
 
 BASE = Path(config.DATA_DIR) / "core" / "normalized"
-relaxed = "relaxed_"
 fname = sys.argv[1] if len(sys.argv) > 1 else "event_coord_candidates_relaxed200.jsonl"
 mingap = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+PREFIX = sys.argv[3] if len(sys.argv) > 3 else "relaxed_"
 
 rows = [json.loads(l) for l in (BASE / fname).open(encoding="utf-8")]
-sel = [r for r in rows if r["how"].startswith(relaxed)]
+sel = [r for r in rows if r["how"].startswith(PREFIX)]
 if mingap:
     sel = [r for r in sel
            if max(0, r["addr_from"] - r["year"] if r["year"] < r["addr_from"]

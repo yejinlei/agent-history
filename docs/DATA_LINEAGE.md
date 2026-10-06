@@ -68,8 +68,8 @@ flowchart TB
 
     subgraph TRUTH["真值层 truth"]
         T1["Kuzu 图库 · app/data/kg/ · 7377 MB · ❌不入（构建产物）"]
-        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 2168 / Book 30"]
-        T1b["关系表 KGREL 460199 条（书载观点 + 发生于 17102 + 参与/触发/任职于 等语义边）"]
+        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 2399 / Book 30"]
+        T1b["关系表 KGREL 461815 条（书载观点 + 发生于 18718 + 参与/触发/任职于 等语义边）"]
         T2["书级产物 · data/ingest/&lt;id&gt;.json（大书提案真值源）、merges.json、kg/dangling_edges.json"]
         T1 --- T1a
         T1 --- T1b
@@ -190,7 +190,7 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 
 对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
-> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **460199 条**，其中 17,102 条是
+> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **461815 条**，其中 18,718 条是
 > 地名 assimilation 补的 `Event-发生于->Place`，其余为书载观点与参与 / 触发 / 任职于 等语义边。
 > 仍有 **29 条悬空边**（种子用拼音 id `xiangyu`，而库里节点是中文名 id `项羽`），记在 `kg/dangling_edges.json`，不影响查询。
 > link（书载观点对齐到主干实体）提案曾恒为 0：主干快照只有名字集合、缺「归一化名 → id」映射，`_resolve_target` 永远匹配不上。已修（`known_from_store` 补 `person_name_ids` / `event_name_ids`），《资治通鉴》link 提案 0 → 62120 条。
@@ -530,13 +530,13 @@ flowchart LR
 | `Dynasty` | 84 | `id, name, span_s, span_e, color, cap_name, cap_lon, cap_lat, map_tile, grp, lane, emperors` | 朝代：起止年、都城经纬度、时间轴车道 |
 | `Event` | 138631 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
 | `Person` | 61355 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
-| `Place` | 2168 | `id, name, ancient, modern, lon, lat, aliases, external_ids, provenance` | 地名：9 条手工种子 + 2,159 条由事件派生（见 §10.10）。**`external_ids` 的值必须是字符串**，见 §10.13 |
+| `Place` | 2399 | `id, name, ancient, modern, lon, lat, aliases, external_ids, provenance` | 地名：9 条手工种子 + 2,390 条由事件派生（见 §10.10）。**`external_ids` 的值必须是字符串**，见 §10.14 |
 | `Book` | 30 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
 | `Source` | 68 | `sid, owner, level, work, text, translation, confidence, from_book` | 引文：`owner` 指回宿主实体 id |
 | `Institution` | 4 | `id, name, kind, function, dynasty_id, span_s, span_e, aliases` | 官制/机构 |
 | `Artifact` | 3 | `id, name, kind, material, era_text, year, date_conf, place_id, museum` | 文物 |
 | `Concept` | 4 | `id, name, kind, definition, dynasty_id, origin_year, aliases` | 制度/观念 |
-| `KGREL`（关系） | 460199 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`）。其中 17,102 条是 `Event-发生于->Place`（见 §10.12） |
+| `KGREL`（关系） | 461815 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`）。其中 18,718 条是 `Event-发生于->Place`（见 §10.12） |
 
 - **关系名目录 24 种**：`app/schema/ontology.py:241` `REL_TYPES`——参与、任职于、师承、发生于、触发、奠定、书载观点、继承自、包含、隶属、设于、下辖、出土于、年代属、铭文录为、提及、创立、推行、盛行于、从属。
 - **端点白名单**：同文件 `REL_PAIRS`（写边硬闸门 G1）。
@@ -588,9 +588,9 @@ flowchart TB
 | `core_places` | 122075 | `id, name, modern, pinyin, kind, year_beg, year_end, external_ids` | 主干权威源（CHGIS），**未进图** |
 | `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
 | `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.7 |
-| `event_coords` | 17101 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
-| `place_nodes` | 2159 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
-| `event_place_edges` | 17098 | `event_id, place_id, rel, place, year, cbdb_addr_id, addr_name, how, confidence, via, batch, ts` | Event→Place 连边的证据与回滚依据，`via` 区分落到派生节点还是种子节点，见 §10.12 |
+| `event_coords` | 18978 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
+| `place_nodes` | 2390 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
+| `event_place_edges` | 18714 | `event_id, place_id, rel, place, year, cbdb_addr_id, addr_name, how, confidence, via, batch, ts` | Event→Place 连边的证据与回滚依据，`via` 区分落到派生节点还是种子节点，见 §10.12 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -668,7 +668,7 @@ flowchart LR
 | Book 节点 | 30 本 | 图库已登记（27 主干 + 3 策展） |
 | **主干已挂载** | **27 本** | **26 史全部挂载完成**：史记、汉书、后汉书、三国志、晋书、宋书、南齐书、梁书、陈书、魏书、北齐书、周书、隋书、南史、北史、旧唐书、新唐书、旧五代史、新五代史、宋史、辽史、金史、元史、明史、资治通鉴、史通、读通鉴论 |
 | 扩展知识（不挂载） | 3 本 | 万历十五年（二级·研究观点）、大秦帝国（三级·文学演绎）、丝绸之路（二级·研究观点） |
-| 图库规模 | 边 460199 / 节点 202279 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询）；其中 17,102 条是 Event→Place「发生于」；事件坐标覆盖率 12.4%（17,158 / 138,631） |
+| 图库规模 | 边 461815 / 节点 202510 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询）；其中 18,718 条是 Event→Place「发生于」；事件坐标覆盖率 13.7%（19,035 / 138,631） |
 
 ### 10.6 书库两层：主干 / 扩展知识
 
@@ -835,8 +835,8 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 ### 10.12 把 Place 接进图：(Event)-[:发生于]->(Place)
 
 > 相关脚本：`link_event_place.py`（干跑 → 写入）、`verify_place_links.py`（校验）、
-> `rollback_place_links.py`（还原）。结果：**17,098 条新边**，图上合计 17,102 条（含 4 条
-> 手工老边），坐标一致性 17,102/17,102，2,159 个派生 Place **全部连通、零孤儿**。
+> `rollback_place_links.py`（还原）。结果：**18,714 条新边**，图上合计 18,718 条（含 4 条
+> 手工老边），坐标一致性 18,718/18,718，2,390 个派生 Place **全部连通、零孤儿**。
 
 补完坐标（§10.8）和 Place 节点（§10.10）后，两者之间仍然**没有任何边**——
 Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工种子）。而 `Event.lon/lat`
@@ -904,6 +904,7 @@ Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工�
 | `3403/11167/14971/17162`《登州》 | 112.08,32.68（河南邓州） | 山东蓬莱 120.74,37.80 | 15 条；「渤海靺鞨寇登州」全错 |
 | `4257/11888/15418/301033`《營州》 | 116.09,38.44（河北河间） | 辽宁朝阳 120.45,41.57 | 9 条；「契丹寇营州」「安禄山任营州刺史」全错 |
 | `12743`《安國》 | 119.72,30.32（杭州） | —— 该事件「张安国杀耿京」是**人名被误当地名** | 1 条 |
+| `12987`《永興軍》 | 115.21,29.83（湖北兴国军/阳新） | 长安（五代永兴军治所） | 10 条；「赵思绾叛永兴」全错 |
 
 发现手段（三份脚本各自的价值与局限）：
 
@@ -944,3 +945,49 @@ Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工�
 （证据一致性、坐标范围、模型校验），没人站在 store 的入口上看一眼。以后凡是往图库
 写新节点/新边，最后一环固定是：起服务 → `/api/health` → `/api/kg/schema` →
 按这次改的维度查一次接口。
+
+### 10.15 后缀归一化：再补 1,877 条坐标（覆盖率 12.4% → 13.7%）
+
+还有约 4 万条事件对不上 CBDB 词表，其中一大类是**书写差一个行政后缀**：图上写
+「河东郡 / 河中府」，CBDB 词条叫「河東 / 河中」；图上写「建康」，词条叫「建康府」。
+于是加了一档 `suffix_*`：剥后缀 / 补后缀各试一遍，但**判据与严格档一样硬**（年代窗口
++ 坐标唯一），且变体之间一旦给出不同坐标就算歧义。
+
+结果：新增 **1,877 条事件坐标 / 231 个 Place 节点 / 1,616 条连边**。
+
+这档特有的红线（写在 `geo_rules.py`，四条一起）：
+
+| 红线 | 为什么拦 |
+|---|---|
+| **单字地名不猜**（汉/赵/元/河/蜀） | 「汉」在图上多半指汉朝或汉水，CBDB 却只有《汉州》（四川广汉） |
+| **省级/大区名不写**（广东/甘肃/西北/江南…） | 会被同名的州/卫/路带偏：`广东`→《廣東衛》(广州)、`西北`→《西北路》(阿尔泰)，误差以百公里计 |
+| **卫所条目不采用**（admin=Wei） | 只有明清才有，且已发现《金齒衛》坐标错误（本该在云南保山，被填到内蒙古） |
+| 带「省」字 | 现代省级单位的坐标其实是省会 |
+
+同一轮里又揪出一个 CBDB 错坐标：`12987《永興軍》`的坐标其实是「鄂州永興县/興國軍」
+（湖北阳新），而图上「赵思绾叛永兴」说的是五代永兴军（治长安）——10 条全错，已清退。
+
+#### 人物籍贯：这条我们决定不做
+
+原本想用同一套方法给 6.1 万个人物补籍贯坐标，**评估后放弃**，因为 CBDB 给不出可靠的籍贯：
+
+| 人物 | CBDB 基本地址 | 真实籍贯 | 偏差 |
+|---|---|---|---|
+| 曹操 | 洛阳 | 沛国谯（亳州） | 324 km ✗ |
+| 诸葛亮 | 成都（执政地） | 琅琊阳都（沂南） | 1,439 km ✗ |
+| 杜甫 | 长安 | 巩县（巩义） | 377 km ✗ |
+| 王安石 | 临川 | 临川 | ✓ |
+| 苏轼 | 眉山 | 眉山 | ✓ |
+
+而且**没有任何一类地址是籍贯**：诸葛亮的 type=3 是沂水（对），苏轼的 type=3 却是
+一串任职地（错）。连曹操作者都会错，整类数据不可用——**错坐标比缺坐标危险**，
+所以 Person 的坐标维持在原来的 13 条。留给以后：要么拿到更权威的源（如《中国历史
+地图集》数字化的籍贯表），要么回到原文做「XX，YY 人也」的抽取。
+
+#### 一个已知缺口（不打算强行补）
+
+同名但坐标不同的 Place 会被当成两处（这是对的），代价是若干事件**有坐标但没有 Place 边**：
+如「凤翔」存在 107.39,34.52（凤翔县）与 107.14,34.38 两组坐标，相差 28 km，
+后者不单独建节点，于是它引用的 163 条事件缺 `发生于` 边。
+这些事件在地图上照常显示（地图用的是 `lon/lat`，不是 Place 节点），
+缺的只是「某地发生过哪些事」的反向查询——比把两个相差 28 公里的点并成一处更可接受。

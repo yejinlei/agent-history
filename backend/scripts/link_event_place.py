@@ -64,6 +64,8 @@ _CONF = {
 }
 # 种子 Place 是否可接受：CBDB 坐标与图上坐标的最大偏差（度）
 _SEED_MAX_SHIFT = 0.5
+# 同名同坐标的重复 addr 判定阈值：比种子更严格（必须几乎同一个点）
+_TWIN_MAX_SHIFT = 0.1
 
 
 def log(m: str) -> None:
@@ -99,6 +101,22 @@ def build_seed_map(c: kuzu.Connection) -> dict[str, tuple[str, float, float]]:
     return m
 
 
+def build_twin_map(con) -> dict[str, list[tuple[str, float, float]]]:
+    """全部派生 Place 按「名字 + 坐标」索引，给同名同坐标的重复条目做兜底。
+
+    成因：建点时 `existing_names` 会把同名坐标合并成一个节点，于是后来的事件即便
+    命中了另一个 addr 也找不到自己的 Place 节点——实测光凤翔就丢了 163 条边。
+    名字相同且坐标几乎重合（≤0.1°）就认作同一处，接过去。
+    """
+    m: dict[str, list[tuple[str, float, float]]] = {}
+    for pid, nm, lon, lat in con.execute(
+            "SELECT place_id, name, lon, lat FROM place_nodes").fetchall():
+        if nm:
+            m.setdefault(zh_convert(str(nm).strip(), "zh-cn"), []).append(
+                (pid, lon or 0.0, lat or 0.0))
+    return m
+
+
 def existing_links(c: kuzu.Connection) -> set[tuple[str, str]]:
     """已存在的 Event→Place「发生于」边，避免重复写。"""
     out: set[tuple[str, str]] = set()
@@ -126,6 +144,7 @@ def main() -> int:
     db = kuzu.Database(KUZU_DB)
     c = kuzu.Connection(db)
     seed_map = build_seed_map(c)
+    twin_map = build_twin_map(duck)
     already = existing_links(c)
     log(f"图上种子 Place {len(seed_map)} 个；已有「发生于」边 {len(already):,} 条")
 
@@ -143,18 +162,30 @@ def main() -> int:
         else:
             # 落到既有种子 Place：同名 + 坐标吻合才算数
             hit = seed_map.get(zh_convert(str(place).strip(), "zh-cn"))
-            if not hit:
-                unresolved[str(place)] += 1
-                stat["unresolved"] += 1
-                continue
-            pid, plon, plat = hit
+            if hit:
+                pid, plon, plat = hit
+                tag = "seed"
+            else:
+                # 同名同坐标的重复 addr：节点已被合并到另一条词条上，接那个节点
+                tw = [t for t in twin_map.get(zh_convert(str(place).strip(),
+                                                          "zh-cn"), [])
+                      if max(abs((lon or 0) - t[1]), abs((lat or 0) - t[2]))
+                      <= _TWIN_MAX_SHIFT]
+                if not tw:
+                    unresolved[str(place)] += 1
+                    stat["unresolved"] += 1
+                    continue
+                tw.sort(key=lambda t: max(abs((lon or 0) - t[1]),
+                                          abs((lat or 0) - t[2])))
+                pid, plon, plat = tw[0]
+                tag = "twin"
             shift = max(abs((lon or 0) - plon), abs((lat or 0) - plat))
             if shift > _SEED_MAX_SHIFT:
                 unresolved[str(place)] += 1
                 stat["seed_too_far"] += 1
                 continue
-            seed_shift[str(place)] += 1
-            tag = "seed"
+            if tag == "seed":
+                seed_shift[str(place)] += 1
         if (eid, pid) in already or (eid, pid) in planned:
             stat["skip_existing" if (eid, pid) in already
                  else "skip_dup_in_batch"] += 1
