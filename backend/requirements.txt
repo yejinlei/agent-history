@@ -15,3 +15,6 @@ kuzu==0.11.3
 duckdb==1.5.6
 rdflib==7.6.0
 pyshacl==0.40.1
+# 繁简转换：CBDB 的地名几乎全是繁体（長安/洛陽），图里的 place 是简体，
+# 地名 assimilation 前必须双向归一，否则一半古地名匹配不上
+zhconv==1.4.3

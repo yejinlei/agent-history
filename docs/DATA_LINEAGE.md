@@ -586,7 +586,8 @@ flowchart TB
 | `core_persons` | 535180 | `id, name, year_birth, year_death, index_year, dynasty, female, external_ids` | 主干权威源（CBDB），**未进图** |
 | `core_places` | 122075 | `id, name, modern, pinyin, kind, year_beg, year_end, external_ids` | 主干权威源（CHGIS），**未进图** |
 | `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
-| `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.6 |
+| `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.7 |
+| `event_coords` | 16316 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -649,6 +650,8 @@ flowchart LR
 | `core/raw/**` + `core/normalized/*.jsonl` | 主干权威源原始件与精简表（raw 不入版本库，脚本可重下） |
 | `merges.json` / `pending_ops.json` / `action_log.json` / `agents.json` | 实体合并记录 / Agent 待审批确认卡 / 动作日志（可 undo）/ Agent 注册表 |
 | `book_scopes.json` | 扩展知识（策展书）名单——列进去的书**不入主干**，见 §10.6（文件不存在时只用内置名单） |
+| `core/normalized/chgis_coords.jsonl` | 从 CHGIS 原始 ZIP 救回的 12.2 万条地名坐标（写盘前逐行校验不许错位），见 §10.8 |
+| `core/normalized/event_coord_candidates.jsonl` | 地名 assimilation 的候选清单（`enrich_event_coords.py` 干跑产物，供人工抽查） |
 | `emperors.json` / `maps.json` / `ontology_extra.json` / `seed.py` | 帝王表 / 底图配置 / 本体扩展 / 种子数据 |
 | `_wmts_*.xml|json`、`_hm_*.html|json` | 瓦片服务能力与朝代页面的抓取缓存 |
 
@@ -692,3 +695,56 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 | 《读通鉴论》挂载必现 500 | `Book.extracts` 把 26 MB 提案整包内联进节点，Kuzu 扫描要整页 pin 住 → `buffer pool is full` | 提案 >300 条不内联，真值源落 `ingest/<id>.json`，读取回落 |
 | 《旧五代史》《新唐书》副本整本丢失 | 人物 id 就是名字（「王饶」），两本书各建一条同 id Person → 投影到副本主键冲突 → **整批 INSERT 失败** | `commit_book` 按 id 查索引，已存在就并入证据（`person_merged`）；副本写入前按 `(kind, entity_id)` 去重 |
 | 《宋史》挂载 500（MemoryError） | `_label_index()` 每写一条边重建一次 9 万条目的 dict，49069 条提案 → 内存爆 | 索引改缓存 + 增量维护，实体增删时登记/作废；查不到时兜底重建 |
+
+### 10.8 地名 assimilation（把坐标补进事件）
+
+> 相关脚本：`extract_chgis_coords.py`（救坐标）、`enrich_event_coords.py`（写入，先干跑）、
+> `verify_event_coords.py`（验证）、`rollback_event_coords.py`（回滚）、`place_match_probe.py`（口径评估）。
+> 结果：Event 坐标覆盖率 **0.0% → 11.8%**（16,373 / 138,631），一致性 16,316/16,316，越界 0。
+
+#### 为什么不能直接用 CHGIS
+
+原本指望 `core_places`（12.2 万 CHGIS 地名）一上手就能给事件配坐标，实测这条路走不通：
+
+| 问题 | 证据 |
+|---|---|
+| 它是**清代以降**的地名体系 | 益州 / 邺 / 朔方 / 云中 / 蓟 / 晋阳 / 建康 **完全没有**；成都只存在「成都县/成都府」 |
+| 同名词条能差**上千公里** | 长安 6 个候选跨 1240 km、洛阳跨 763 km、新城 14 个候选跨 1409 km |
+| 「京师」是陷阱 | 唯一候选是南京（起年 1378），而图上「京师」事件横跨公元前 344~1644 年 |
+
+顺带补个历史债：当年 `extract_core.py` 派生时只挑了 name/pres_loc/years/type/data_src，
+把坐标连同可回连的主键一起丢了，`chgis:N` 又是自增序号。后来靠 `main3.pt_id → gis_info.sys_id`
+（命中 122,072/122,075 = 100%）把坐标救了回来，落 `chgis_coords.jsonl`。
+
+#### 真正的源是 CBDB
+
+`CBDB_20240208_sqlite.db` 里的 `ADDR_CODES` / `ADDRESSES`：带 `c_firstyear/c_lastyear` 年代区间、
+`c_alt_names` 别名、层级归属，时代与 26 史对口。两个坑：
+
+1. **全是繁体**——长安 0 条 / 長安 11 条。装 `zhconv` 做双向繁简归一后，采用率 16.9% → 38.8%。
+2. **同名异地**——用「每个事件用自己的年份挑候选」+「坐标跨度 ≤0.5° 视为同地」+「行政级别兜底」三条判据。
+
+#### 匹配口径（宁缺毋滥）
+
+| 档位 | 判据 | 事件数 |
+|---|---|---|
+| `ok_year_unique` | 同名唯一候选，且事件年份落在它的年代区间 | 12,746 |
+| `ok_year_same_place` | 多条候选落在窗口但坐标几乎重合（≤0.5°） | 3,424 |
+| `ok_year_by_rank` | 仍多条时按行政级别取最高且唯一 | 146 |
+| `blocked_movable` | **都城通称拉黑**（京师/京城/中都/上都/东京/西京/行在…） | 2,575 |
+| `out_of_window` | 该地名在 CBDB 里没有覆盖那个年代（多为先秦） | 28,637 |
+| `miss` | 词表里没有（多为小地名、非行政地名） | 40,062 |
+
+**都城通称为什么整类拉黑**：CBDB 给「京师」一条 1368~1643 的坐标（北京），但明初（1368~1420）
+定都南京——候选里 305 条「京师」就有 1368、1369、1370 这些年份，照写就是 330 条起步的错数据。
+同理「中都」1153 年（金中都=北京）被标到山东汶上。
+
+#### 安全基线（改动前必做）
+
+- **冷备份**：停服后拷贝，`C:\agent-history-backup\20261006-baseline`（8.3 GB），
+  并**验证过能真的打开**（备份库节点/边计数与线上逐一相符）——没验证过的备份不算备份。
+- **证据留痕**：Kuzu 0.11 不支持 ALTER ADD COLUMN，没法给 Event 加「坐标来源」列，
+  于是证据落在数仓 `event_coords` 表（含写入前旧值）。
+- **幂等 + 可回滚**：重跑自动跳过已写的；`rollback_event_coords.py` 依据证据表一键还原。
+- **校验兜底**：派生坐标时对错位极度敏感——12 万行里跳过一行就会全盘错配，
+  所以用「行数 + 逐行 name/id 比对」卡死（实践中确实抓到了一次行数不符、一次排序用错字符串序）。
