@@ -103,6 +103,8 @@ def load_event_addr_index():
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--relaxed-gap", type=int, default=0,
+                    help="与 enrich_event_coords 同口径；>0 时把放宽档涉及的地点也收进来")
     a = ap.parse_args()
 
     log("构建地名词典…")
@@ -134,8 +136,11 @@ def main() -> int:
         place = (place or "").strip()
         if not place:
             continue
-        lv, rec = match_fn(idx, place, year)
-        if not lv.startswith("ok_") or rec is None:
+        # 与时事事件坐标同一条口径：判定必须一致，否则会造出「事件有坐标、
+        # 却找不到对应 Place 节点」的半截状态
+        lv, rec = match_fn(idx, place, year, a.relaxed_gap)
+        if rec is None or not (lv.startswith("ok_")
+                               or lv.startswith("relaxed_")):
             continue
         ref[rec[5]] += 1
     c = None                      # 释放读连接即可，db 要留给写阶段复用
@@ -205,7 +210,11 @@ def main() -> int:
         als = r.pop("_aliases")
         r["aliases"] = json.dumps(als, ensure_ascii=False)
         r["external_ids"] = json.dumps(
-            {"cbdb": addr_ids[0], "cbdb_all": addr_ids, "admin": r["admin"]},
+            # external_ids 这一列在图库里是 STRING（存 JSON 文本），而 Place 模型
+            # 按 dict[str, str] 解析——cbdb_all 必须是字符串，写列表会让服务启动时
+            # pydantic 校验失败（实测：服务直接崩在 Store.__init__ 读 Place）
+            {"cbdb": addr_ids[0], "cbdb_all": ",".join(str(a) for a in addr_ids),
+             "admin": r["admin"]},
             ensure_ascii=False)
     log(f"同名同坐标合并掉 {merged:,} 个条目")
 

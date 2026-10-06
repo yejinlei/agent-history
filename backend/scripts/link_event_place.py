@@ -77,7 +77,10 @@ def build_addr_map(con) -> dict[str, tuple[str, str, float, float]]:
             "SELECT place_id, name, external_ids, lon, lat "
             "FROM place_nodes").fetchall():
         d = json.loads(ext) if ext else {}
-        ids = [d.get("cbdb")] + list(d.get("cbdb_all") or [])
+        all_ids = d.get("cbdb_all") or []
+        if isinstance(all_ids, str):      # 存量里既有逗号串也有早期写过的列表
+            all_ids = [x for x in all_ids.split(",") if x]
+        ids = [d.get("cbdb")] + list(all_ids)
         for a in ids:
             if a:
                 m[str(a)] = (pid, nm, lon, lat)

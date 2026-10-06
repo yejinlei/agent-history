@@ -62,15 +62,9 @@ CAND = Path(config.DATA_DIR) / "core" / "normalized" / "event_coord_candidates.j
 _RANK = {"Du": 0, "Fu": 1, "Zhou": 2, "Jun": 3, "Xian": 4, "xian": 4,
          "County": 5, "Wei": 6, "Pu": 7, "Lu": 2}
 
-# 「随朝代搬家」的都城通称：同一个词在 CBDB 里只有一条跨数百年的坐标，但历史上
-# 它指的地方随定都而变，写进去必错。实证：
-#   京师 305 条，CBDB 全标北京(116.37,39.93)，可 1368~1420 年的明初京师是南京；
-#   中都  25 条，CBDB 标山东汶上(116.48,35.73)，可 1153 年金中都在北京。
-# 这类词一律不写——宁缺毋滥。（「南京」「北京」经查年代集中且指向正确，保留）
-_MOVABLE_CAPITAL = {
-    "京师", "京城", "京都", "京阙", "京畿", "中都", "上都", "下都", "东京",
-    "西京", "北都", "南都", "盛京", "兴京", "行在", "留都", "都城", "宸京",
-}
+# 判定名单统一在 app/geo_rules.py——早先各脚本自己抄一份，结果写死简体的黑名单
+# 遇繁体写法（京師）直接漏判，这里只保留一处真值源。
+from app.geo_rules import addr_is_bad, blocked_everywhere, blocked_when_relaxed  # noqa: E402
 
 
 def log(m: str) -> None:
@@ -119,17 +113,34 @@ def build_index() -> dict[str, list[tuple]]:
     return idx
 
 
-def match_event(idx: dict[str, list[tuple]], place: str, year: int | None):
-    """返回 (档位, 选中条目)。只认强证据。"""
-    if place in _MOVABLE_CAPITAL:
+def match_event(idx: dict[str, list[tuple]], place: str, year: int | None,
+                relaxed_gap: int = 0):
+    """返回 (档位, 选中条目)。只认强证据。
+
+    relaxed_gap > 0 时开放「放宽档」：事件年份没落在词条年代区间、但词表里同名
+    只有这一条且相差不超过 relaxed_gap 年，就采纳。**严格档行为完全不变**。
+    """
+    if blocked_everywhere(place):
         return "blocked_movable", None
-    cands = idx.get(zh_convert(place, "zh-cn"), [])
+    # CBDB 里已知坐标错误的条目，任何档位都不采用（如 4042《益州》被打到了吉林）
+    cands = [r for r in idx.get(zh_convert(place, "zh-cn"), [])
+             if not addr_is_bad(r[5])]
     if not cands:
         return "miss", None
     if year is not None:
         pool = [r for r in cands
                 if r[0] is not None and r[1] is not None and r[0] <= year <= r[1]]
         if not pool:
+            # 放宽档：同名唯一 + 年代只差一点点 + 不是会搬家的都城通称。
+            # year == 0 是「无年份」的哨兵值（=% 图里大约一半事件），不许走放宽。
+            if (relaxed_gap and year != 0 and len(cands) == 1
+                    and not blocked_when_relaxed(place)
+                    and not addr_is_bad(cands[0][5])):
+                fy, ly = cands[0][0], cands[0][1]
+                if fy is not None and ly is not None:
+                    gap = fy - year if year < fy else year - ly
+                    if 0 < gap <= relaxed_gap:
+                        return f"relaxed_le{relaxed_gap}", cands[0]
             return "out_of_window", None
         tag = "year"
     else:
@@ -177,6 +188,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="真正写入（默认只干跑）")
     ap.add_argument("--limit", type=int, default=0, help="最多写多少条")
+    ap.add_argument("--relaxed-gap", type=int, default=0,
+                    help=">0 时开放放宽档：同名唯一候选且年代相差不超过 N 年就采纳"
+                         "（0=关闭，保持严格档）")
     a = ap.parse_args()
 
     log("构建 CBDB 地名词典…")
@@ -201,9 +215,10 @@ def main() -> int:
     hits: list[dict] = []
     stat: Counter = Counter()
     for eid, place, year, lon, lat in rows:
-        lv, rec = match_event(idx, place, year)
+        lv, rec = match_event(idx, place, year, a.relaxed_gap)
         stat[lv] += 1
-        if not lv.startswith("ok_") or rec is None:
+        accepted = lv.startswith("ok_") or lv.startswith("relaxed_")
+        if not accepted or rec is None:
             continue
         hits.append({
             "event_id": eid, "place": place, "year": year,
@@ -214,7 +229,8 @@ def main() -> int:
         })
 
     total = sum(stat.values())
-    ok = sum(stat[k] for k in stat if k.startswith("ok_"))
+    ok = sum(stat[k] for k in stat
+             if k.startswith("ok_") or k.startswith("relaxed_"))
     log("匹配统计：")
     for k, v in stat.most_common():
         log(f"  {k:<22} {v:>8,}  {v / total * 100:>5.1f}%")
@@ -224,12 +240,15 @@ def main() -> int:
         log("没有命中，退出")
         return 0
 
-    # 干跑：落候选清单，供人工抽查
-    CAND.parent.mkdir(parents=True, exist_ok=True)
-    with open(CAND, "w", encoding="utf-8") as f:
+    # 干跑：落候选清单，供人工抽查。放宽档写成另一个文件，别把严格档那份盖了
+    cand = CAND
+    if a.relaxed_gap:
+        cand = CAND.with_name(f"event_coord_candidates_relaxed{a.relaxed_gap}.jsonl")
+    cand.parent.mkdir(parents=True, exist_ok=True)
+    with open(cand, "w", encoding="utf-8") as f:
         for h in hits:
             f.write(json.dumps(h, ensure_ascii=False) + "\n")
-    log(f"候选清单已写出：{CAND}（{len(hits):,} 行）")
+    log(f"候选清单已写出：{cand}（{len(hits):,} 行）")
 
     # 抽查：按档位各取几条，连同地名条目年代一起打印，供人工判断
     log("\n-- 抽查样本（按档位各 4 条）--")

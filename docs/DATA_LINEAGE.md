@@ -68,8 +68,8 @@ flowchart TB
 
     subgraph TRUTH["真值层 truth"]
         T1["Kuzu 图库 · app/data/kg/ · 7377 MB · ❌不入（构建产物）"]
-        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 2046 / Book 30"]
-        T1b["关系表 KGREL 459417 条（书载观点 + 发生于 16320 + 参与/触发/任职于 等语义边）"]
+        T1a["节点表 Dynasty 84 / Event 138631 / Person 61355 / Place 2168 / Book 30"]
+        T1b["关系表 KGREL 460199 条（书载观点 + 发生于 17102 + 参与/触发/任职于 等语义边）"]
         T2["书级产物 · data/ingest/&lt;id&gt;.json（大书提案真值源）、merges.json、kg/dangling_edges.json"]
         T1 --- T1a
         T1 --- T1b
@@ -190,7 +190,7 @@ python scripts/extract_core.py --only cbdb --limit 2000   # 试跑
 
 对齐规范见 `docs/ONTOLOGY_ALIGN.md`：Person→CIDOC `E21`、Event→`E5`、Place→`E53`、参与→`P11`；时间区间映射 OWL-Time `time:Interval` / `time:Instant`（已核实：OWL-Time 里没有 `TimeSpan`，那是 CIDOC `E52` 的叫法）；外部锚点统一放 `external_ids`。
 
-> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **459417 条**，其中 16,320 条是
+> 现状提醒（已更新）：26 史全部挂载完成——KGREL 共 **460199 条**，其中 17,102 条是
 > 地名 assimilation 补的 `Event-发生于->Place`，其余为书载观点与参与 / 触发 / 任职于 等语义边。
 > 仍有 **29 条悬空边**（种子用拼音 id `xiangyu`，而库里节点是中文名 id `项羽`），记在 `kg/dangling_edges.json`，不影响查询。
 > link（书载观点对齐到主干实体）提案曾恒为 0：主干快照只有名字集合、缺「归一化名 → id」映射，`_resolve_target` 永远匹配不上。已修（`known_from_store` 补 `person_name_ids` / `event_name_ids`），《资治通鉴》link 提案 0 → 62120 条。
@@ -530,13 +530,13 @@ flowchart LR
 | `Dynasty` | 84 | `id, name, span_s, span_e, color, cap_name, cap_lon, cap_lat, map_tile, grp, lane, emperors` | 朝代：起止年、都城经纬度、时间轴车道 |
 | `Event` | 138631 | `id, name, year, month, day, date_conf, dynasty_id, lon, lat, place, actors, significance, dispute, route, route_label, from_book, book_sources` | 事件：时间/地点/参与者/重要性/分歧/行军路线 |
 | `Person` | 61355 | `id, name, years, dynasty_id, home, lon, lat, aliases, from_book, book_sources` | 人物：生卒、所属朝、籍贯、别名 |
-| `Place` | 2046 | `id, name, ancient, modern, lon, lat, aliases, external_ids, provenance` | 地名：9 条手工种子 + 2,037 条由事件派生（见 §10.10） |
+| `Place` | 2168 | `id, name, ancient, modern, lon, lat, aliases, external_ids, provenance` | 地名：9 条手工种子 + 2,159 条由事件派生（见 §10.10）。**`external_ids` 的值必须是字符串**，见 §10.13 |
 | `Book` | 30 | `id, title, author, year, level, dynasty_id, span, tags, descr, extracts, mounted, origin, file, accepted` | 书籍：`level` 史料等级、`mounted` 是否已挂、`accepted` 已确认提案位图 |
 | `Source` | 68 | `sid, owner, level, work, text, translation, confidence, from_book` | 引文：`owner` 指回宿主实体 id |
 | `Institution` | 4 | `id, name, kind, function, dynasty_id, span_s, span_e, aliases` | 官制/机构 |
 | `Artifact` | 3 | `id, name, kind, material, era_text, year, date_conf, place_id, museum` | 文物 |
 | `Concept` | 4 | `id, name, kind, definition, dynasty_id, origin_year, aliases` | 制度/观念 |
-| `KGREL`（关系） | 459417 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`）。其中 16,320 条是 `Event-发生于->Place`（见 §10.12） |
+| `KGREL`（关系） | 460199 | `rel, from_book, confidence, src_ids` | 唯一关系表；**端点由 `FROM/TO` 表决定**（8 种组合，见 `store.py:132`）。其中 17,102 条是 `Event-发生于->Place`（见 §10.12） |
 
 - **关系名目录 24 种**：`app/schema/ontology.py:241` `REL_TYPES`——参与、任职于、师承、发生于、触发、奠定、书载观点、继承自、包含、隶属、设于、下辖、出土于、年代属、铭文录为、提及、创立、推行、盛行于、从属。
 - **端点白名单**：同文件 `REL_PAIRS`（写边硬闸门 G1）。
@@ -588,9 +588,9 @@ flowchart TB
 | `core_places` | 122075 | `id, name, modern, pinyin, kind, year_beg, year_end, external_ids` | 主干权威源（CHGIS），**未进图** |
 | `core_anchors` | 12403 | `id, name, year_birth, year_death, external_ids(wikidata,cbdb), source` | Wikidata↔CBDB 锚点 |
 | `entities` | ≈20 万 | `kind, entity_id, name, year, dynasty_id, place_id, lon, lat, from_book, confidence` | Kuzu 实体的**投影副本**，供时间窗/空间窗快查；起服全量重灌，之后按差异增量同步（`_sync_entities_to_warehouse`）。主键 `(kind, entity_id)`——**重复行会让整批 INSERT 失败**，见 §10.7 |
-| `event_coords` | 16316 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
-| `place_nodes` | 2037 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
-| `event_place_edges` | 16316 | `event_id, place_id, rel, place, year, cbdb_addr_id, addr_name, how, confidence, via, batch, ts` | Event→Place 连边的证据与回滚依据，`via` 区分落到派生节点还是种子节点，见 §10.12 |
+| `event_coords` | 17101 | `event_id, place, year, old_lon, old_lat, lon, lat, cbdb_addr_id, addr_name, addr_admin, addr_from, addr_to, how, batch, ts` | 地名 assimilation 的**证据与回滚依据**：每条写入的坐标都记下写入前的旧值，见 §10.8 |
+| `place_nodes` | 2159 | `place_id, name, ancient, modern, lon, lat, aliases, external_ids, cbdb_addr_id, admin, beg_year, end_year, ref_events, batch, ts` | Place 节点的证据（含 CBDB 地址条目的起止年——图库没地方放这些），见 §10.10 |
+| `event_place_edges` | 17098 | `event_id, place_id, rel, place, year, cbdb_addr_id, addr_name, how, confidence, via, batch, ts` | Event→Place 连边的证据与回滚依据，`via` 区分落到派生节点还是种子节点，见 §10.12 |
 | `books_raw` | 0 | `book_id, title, author, level, stance, …, source_path` | 上传原文的登记台账（当前原文走 `books/` + manifest，不经上传） |
 
 ### 10.3 跨库关联键
@@ -668,7 +668,7 @@ flowchart LR
 | Book 节点 | 30 本 | 图库已登记（27 主干 + 3 策展） |
 | **主干已挂载** | **27 本** | **26 史全部挂载完成**：史记、汉书、后汉书、三国志、晋书、宋书、南齐书、梁书、陈书、魏书、北齐书、周书、隋书、南史、北史、旧唐书、新唐书、旧五代史、新五代史、宋史、辽史、金史、元史、明史、资治通鉴、史通、读通鉴论 |
 | 扩展知识（不挂载） | 3 本 | 万历十五年（二级·研究观点）、大秦帝国（三级·文学演绎）、丝绸之路（二级·研究观点） |
-| 图库规模 | 边 459417 / 节点 202166 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询）；其中 16320 条是 Event→Place「发生于」 |
+| 图库规模 | 边 460199 / 节点 202279 | 悬空边恒为 29（种子拼音 id 遗留，不影响查询）；其中 17,102 条是 Event→Place「发生于」；事件坐标覆盖率 12.4%（17,158 / 138,631） |
 
 ### 10.6 书库两层：主干 / 扩展知识
 
@@ -732,8 +732,7 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 
 | 档位 | 判据 | 事件数 |
 |---|---|---|
-| `ok_year_unique` | 同名唯一候选，且事件年份落在它的年代区间 | 12,746 |
-| `ok_year_same_place` | 多条候选落在窗口但坐标几乎重合（≤0.5°） | 3,424 |
+| `ok_year_unique` | 同名唯一候选，且事件年份落在它的年代区间 | 12,746 || `ok_year_same_place` | 多条候选落在窗口但坐标几乎重合（≤0.5°） | 3,424 |
 | `ok_year_by_rank` | 仍多条时按行政级别取最高且唯一 | 146 |
 | `blocked_movable` | **都城通称拉黑**（京师/京城/中都/上都/东京/西京/行在…） | 2,575 |
 | `out_of_window` | 该地名在 CBDB 里没有覆盖那个年代（多为先秦） | 28,637 |
@@ -836,8 +835,8 @@ Book 有 `scope` 分层，**只影响能否挂载与是否进主干的意识层�
 ### 10.12 把 Place 接进图：(Event)-[:发生于]->(Place)
 
 > 相关脚本：`link_event_place.py`（干跑 → 写入）、`verify_place_links.py`（校验）、
-> `rollback_place_links.py`（还原）。结果：**16,316 条新边**，图上合计 16,320 条，
-> 坐标一致性 16,320/16,320，2,037 个派生 Place **全部连通、零孤儿**。
+> `rollback_place_links.py`（还原）。结果：**17,098 条新边**，图上合计 17,102 条（含 4 条
+> 手工老边），坐标一致性 17,102/17,102，2,159 个派生 Place **全部连通、零孤儿**。
 
 补完坐标（§10.8）和 Place 节点（§10.10）后，两者之间仍然**没有任何边**——
 Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工种子）。而 `Event.lon/lat`
@@ -870,3 +869,78 @@ Place 是图上的孤岛（写入前出入边合计只有 11 条，全是手工�
 > 小注：`event_place_edges` 的写入走的是逐行绑定（16k 行约 7 分钟，见 §10.11 的
 > 3000 倍陷阱）。一次性运维脚本，先留着；若以后常跑，再登记进 `Warehouse._SCHEMAS`
 > 改走 `_bulk_insert`。
+
+### 10.13 放宽年代窗口：多要 811 条坐标，顺带查出 CBDB 自己的错坐标
+
+> 相关脚本：`crosscheck_coords.py`（CHGIS 交叉验证）、`hierarchy_audit.py`（CBDB 隶属关系体检）、
+> `collision_audit.py`（坐标撞车）、`repair_bad_coords.py`（清退坏坐标）。
+
+严格档占到有地名事件的 **18.3%** 就到顶了，卡点是有 28,637 条事件「该地名在 CBDB 里
+没有覆盖那个年代」。试了三条加量的路，**只有放宽年代窗口有效**：
+
+| 加量手段 | 增益 | 结论 |
+|---|---|---|
+| 补 `ADDR_XY` 的坐标给缺坐标词条 | +3 条 | 无效——这些词条本来就没有任何事件引用 |
+| 把 `ADDRESSES` 的 5.1 万条写法也纳入检索 | +2 条 | 无效 |
+| **放宽年代窗口**（同名唯一候选 + 年代相差 ≤N 年） | gap≤200：**+847**；gap≤500：+1,771 | 唯一有效，但必须设闸 |
+
+**不能一放了之**——按年代差分层的抽样显示错误集中在尾巴上：gap ≥400 年的样本
+20 条里错 5 条（`金川`→四川金川、`安西`→甘肃会宁、唐代安西应是龟兹、`昌江`1427
+应是越南）。所以最终口径是 **gap ≤ 200 + 都城/别名黑名单 + 只认有真实年份的事件**，
+并按**地名维度**（而不是按事件）把涉及的 239 个名字逐个复核了一遍——坏地名会成串
+重复，抽样估不准真实错误率。
+
+这一轮把判定名单抽到了 `app/geo_rules.py`（此前散在各脚本里各写各的，导致写死简体的
+黑名单遇繁体写法「京師」整个漏判，差点把 1054 年北宋开封的日食事件写到明代北京）。
+
+#### 顺带查出 CBDB 自己的坐标错误（清退 25 条）
+
+写了三份审计交叉印证，最后发现四处 CBDB 数据本身的问题，**没有可靠坐标就不写了**
+（宁缺毋滥，与 §10.8 一脉相承）：
+
+| CBDB 条目 | 实际被写成 | 应该在哪 | 影响 |
+|---|---|---|---|
+| `4042`《益州》 | 125.49,44.86（吉林） | 成都 104.07,30.67 | 1 条 |
+| `3403/11167/14971/17162`《登州》 | 112.08,32.68（河南邓州） | 山东蓬莱 120.74,37.80 | 15 条；「渤海靺鞨寇登州」全错 |
+| `4257/11888/15418/301033`《營州》 | 116.09,38.44（河北河间） | 辽宁朝阳 120.45,41.57 | 9 条；「契丹寇营州」「安禄山任营州刺史」全错 |
+| `12743`《安國》 | 119.72,30.32（杭州） | —— 该事件「张安国杀耿京」是**人名被误当地名** | 1 条 |
+
+发现手段（三份脚本各自的价值与局限）：
+
+- **`collision_audit.py`**：查「同一坐标被多个不同地名共用」——登州/鄧州、營州/河间
+  就是这样露的马脚。局限：长安/京兆府、成都/蜀郡、南京/应天这类**同地异称**也会命中，要人工分辨。
+- **`hierarchy_audit.py`**：用 CBDB `ADDR_BELONGS_DATA` 查「子政区坐标不应远离父政区」。
+  局限：父坐标为 `0,0`（缺失）或父本身错误时会误报。
+- **`crosscheck_coords.py`**：用救回来的 CHGIS 坐标交叉验证。局限最大——CHGIS 是清代切片，
+  辽金时期的北方地名（顺州、广宁、柳城、惠州、锦州…）会被大量误报，报警的其实是 CHGIS 自己。
+
+清理由 `repair_bad_coords.py` 统一做：同时退掉 **Event 坐标 + Place 节点 + 连边 + 三张证据表
+里对应的行**，只清一样就会留下脏碎片。注意别按名字一刀切：`4945《登州府》`的坐标是对的（蓬莱），
+那 19 条明代事件保留——所以是按 **addr id** 精确清退，不是按名字一刀切。
+
+> 残余风险：已落的所有坐标都通过了「严格档 / 放宽档」判定，抽查 68 条（程序 + 人眼）
+> 尚未发现新的系统性错误。但 CBDB 仍有未知比例的错误坐标，这三个审计脚本就是以后
+> 继续挖的工具——发现新的就加进 `geo_rules.BAD_ADDR` 再跑一次清理。
+
+### 10.14 一个几乎漏网的坑：Place.external_ids 的值必须是字符串
+
+这一轮最后做的**端到端验证**（起服务真查一遍）救回了一次事故：写 Place 节点时把
+
+```json
+{"cbdb": "15099", "cbdb_all": ["15099", "3520", "12278"], "admin": "Xian"}
+```
+
+写进了 `external_ids`。这一列在图库里是 **STRING（存 JSON 文本）**，而 `Place` 模型
+声明 `external_ids: dict[str, str]`；store 载入时 json.loads 后交给 pydantic，结果
+**服务崩在 `Store.__init__`**——一个坏节点能把整个服务拉不起来，而这批节点有 2,159 个。
+
+- **没有放宽 schema**：那是 STRING 列，store 回写 Kuzu 时同样会炸，改 schema 只是把
+  崩溃推迟到写环节。
+- 改的是写入端（`enrich_place_nodes.py` 用逗号串：`"cbdb_all": "15099,3520,12278"`），
+  消费端（`link_event_place.py`）两种形态都收得下，存量节点用
+  `repair_place_external_ids.py` 改回来，并按 store 的口径自检（2,168 个节点 0 失败）。
+
+**教训：离线写好数据不算完，起服务跑一遍才算。** 前面几轮的入库校验都在脚本层面
+（证据一致性、坐标范围、模型校验），没人站在 store 的入口上看一眼。以后凡是往图库
+写新节点/新边，最后一环固定是：起服务 → `/api/health` → `/api/kg/schema` →
+按这次改的维度查一次接口。
