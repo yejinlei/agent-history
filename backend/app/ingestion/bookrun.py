@@ -414,12 +414,30 @@ def run_book(book_id: str, *, store=None, opts: RunOptions | None = None,
     raw_n = 0
     if o.save_raw and not o.dry_run:
         rows = warehouse.load_extract_raw(book_id, model)
+        if not rows:
+            # 模型指纹对不上：这本书的 raw 记在别的模型名下（落盘时是
+            # llm:xxx，这次收口却是 heuristic）。早年这里会静默算出 0 提案，
+            # 再把 book_runs 写成 proposals=0 ——《资治通鉴》就是这么被误判成
+            # 「抽取没跑完」的，其实 1472 块全跑完了、产物和图上节点都在。
+            # 所以先看看别的模型名下有没有，有就按真实的那个收口。
+            others = [m for m in warehouse.extract_models(book_id)
+                      if m != model]
+            for alt in others:
+                rows = warehouse.load_extract_raw(book_id, alt)
+                if rows:
+                    print(f"  [收口] 模型指纹对不上（{model} 名下无原始结果），"
+                          f"改用已落盘的 {alt}")
+                    model = alt
+                    break
         if rows:
             acc = new_accumulator()
             for _idx, out in rows:
                 accumulate(acc, out, known=known)
             raw_n = len(rows)
             print(f"  [收口] 合并已落盘的 {raw_n} 块抽取结果重算提案")
+        elif cnt["done"] == 0:
+            print("  [警告] 本次一块都没处理，且库里没有该书的原始结果："
+                  "提案会是空的，状态不会覆盖已有的更好结果")
     proposals, info = finalize(acc, known=known, resolver=resolver,
                                opts=_build_opts(o, book_id))
     rep = ({} if o.dry_run else warehouse.piece_report(book_id, model, limit))

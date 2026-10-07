@@ -33,7 +33,13 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 _BACKEND = Path(__file__).resolve().parent.parent
-_DATA = _BACKEND / "app" / "data"
+sys.path.insert(0, str(_BACKEND))
+from app import config                                     # noqa: E402
+
+# 数据根目录必须取 config.DATA_DIR，不能写死 backend/app/data：实际数据（图库
+# 7 GB 量级）在 DATA_DIR 下，app/data 里那份是早年遗留的空壳。早年写死路径时
+# 这个脚本一直在备份空目录，真正的数据从来没被备份过。
+_DATA = Path(config.DATA_DIR)
 _BACKUP = _BACKEND / "_backup"
 
 TARGETS = {
@@ -67,23 +73,26 @@ def main() -> int:
     ap.add_argument("--what", nargs="*", choices=list(TARGETS),
                     help="备份哪些（默认全部）")
     ap.add_argument("--keep", type=int, default=3)
+    ap.add_argument("--dest", help="备份到哪（默认 backend/_backup；"
+                                   "图库很大，本机常要放到别的盘）")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
 
+    root = Path(a.dest) if a.dest else _BACKUP
     if a.list:
-        if not _BACKUP.exists():
+        if not root.exists():
             print("暂无备份")
             return 0
-        for d in sorted(_BACKUP.iterdir()):
+        for d in sorted(root.iterdir()):
             mb = size_of(d) / 1e6
             print(f"  {d.name}  {mb:,.1f} MB")
         return 0
 
     what = a.what or list(TARGETS)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = _BACKUP / stamp
+    dest = (Path(a.dest) / stamp) if a.dest else (_BACKUP / stamp)
     dest.mkdir(parents=True, exist_ok=True)
-    print(f"备份 → {dest}")
+    print(f"备份 → {dest}（源 {_DATA}）")
 
     t0 = time.time()
     total = 0
@@ -105,7 +114,7 @@ def main() -> int:
 
     print(f"完成：{total/1e6:,.1f} MB，用时 {time.time()-t0:.0f}s")
 
-    olds = sorted(d for d in _BACKUP.iterdir() if d.is_dir())[:-a.keep]
+    olds = sorted(d for d in dest.parent.iterdir() if d.is_dir())[:-a.keep]
     for d in olds:
         shutil.rmtree(d)
         print(f"  清理旧备份 {d.name}（保留最近 {a.keep} 份）")
