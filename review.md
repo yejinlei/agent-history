@@ -1,5 +1,37 @@
 # 代码审查报告：书库接入 / 多 Agent / 本体深化
 
+> ## 修复状态复核（2026-10-08）
+>
+> 下文的问题清单写于 2026-10-02，此后多有改动。已逐条按符号（而非行号）复核，
+> 结果如下。**已修的不再重复排查**；标「未复核」的是本次没来得及确认的项。
+>
+> | 编号 | 状态 | 依据（当前代码） |
+> |---|---|---|
+> | H1 前端删除走 POST | ✅ 已修 | `frontend/src/api.ts` 有 `deleteJSON`（method DELETE），deleteBook/deleteAgent 已改用 |
+> | H2 save 非原子 | ✅ 已修 | `store.save()` 已改为差分落盘，不再 DROP 全表重建 |
+> | H3 确认卡未绑真实目标 | ✅ 已修 | `runtime.confirm_operation` 按 Agent【当前】授权 + 目标书存在性重校验，且返回完整 op |
+> | H4 undo 卸载丢 accepted | ✅ 已修 | `routes._undo_unmount` 按 `book.accepted` 原位图重放，旧数据才回退全接受 |
+> | M1 add_edge 是死代码 | 🟡 部分修 | `store.py` 挂载路径与增量边已走 `add_edge`；历史直写路径仍有残留 |
+> | M2 书载观点/书载·观点 | ✅ 已修 | 全库统一为「书载观点」 |
+> | M3 Source→Artifact 无 DDL | ✅ 已修 | `REL_PAIRS` 仅保留 Artifact→Source，并加了注释说明 |
+> | M4 ActionLog/PendingOps 无锁 | ❌ 未修 | 并发撤销仍有 TOCTOU |
+> | M5 LLM 问答失败 500 | ✅ 已修 | `runtime.run_agent` 的 `llm.chat` 有 try/except 回退；`nodes.narrate_node` 同样已降级 |
+> | M6 confirm 返回形状错 | ✅ 已修 | 返回 `set_status` 后的完整 op |
+> | M7 Resolver 未接线 | ❌ 未修 | 上传仍会对已知人物造重复实体提案 |
+> | M8 上传异常兜底 | ✅ 已修 | 有 `except Exception` + `dest.unlink` 清理 |
+> | M9 前端异步无 catch | 未复核 | — |
+> | M10 async 内同步重操作 | 🟡 部分修 | `parse_document` 已放 `run_in_threadpool`，`store.save()` 仍同步 |
+> | L1 requirements 缺 kuzu | ✅ 已修 | `backend/requirements.txt` 含 `kuzu==0.11.3` |
+> | L2 仅校验扩展名 | ❌ 未修 | — |
+> | L3 无认证 | ❌ 未修 | 产品决策，待定 |
+> | L4 配色只 5 类 | ✅ 已修 | `GraphExplorer.COLORS` 已覆盖 8 类（含 Artifact/Concept） |
+> | L5 KGLabel 缺新三类 | ✅ 已修 | `types.ts` 已含 Institution/Artifact/Concept |
+> | L6–L10 | 未复核 | — |
+>
+> 复核期间另外修掉的加载健壮性问题：`Narrative` 三字段与 `Person.years` 为
+> None/int 时会让 pydantic 拒绝整条实体（一个空节点即拖崩全站），现已在
+> `store._load_kuzu` 做容错归一。
+
 - 审查日期：2026-10-02
 - 审查方式：只读静态审查 + 只读命令（tsc/compileall/GetDiagnostics）+ 对在运行服务器（127.0.0.1:8000）做非破坏性 HTTP 探测；未启动任何占库进程
 - 审查范围：
