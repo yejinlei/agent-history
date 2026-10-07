@@ -74,6 +74,16 @@ def _ids(conn: kuzu.Connection, query: str, params: dict | None = None) -> set[s
     return out
 
 
+def _keys(conn: kuzu.Connection, query: str,
+          params: dict | None = None) -> set[tuple]:
+    """取多列组成的幂等键（内容级去重用）。"""
+    q = conn.execute(query, params or {})
+    out = set()
+    while q.has_next():
+        out.add(tuple(q.get_next()))
+    return out
+
+
 def ensure_table(con: duckdb.DuckDBPyConnection) -> None:
     # op 区分「建节点」与「补边」两种动作，两者幂等键不同：节点可能早就在图里，
     # 只缺一条归属边。
@@ -119,6 +129,15 @@ def main() -> int:
 
     ev_ids = _ids(con, "MATCH (n:Event) RETURN n.id")
     pe_ids = _ids(con, "MATCH (n:Person) RETURN n.id")
+    # 提案 id 是按序号生成的（mingshi_e0、e1…），补年/复核之后事件集合一变，
+    # 序号就整体错位：同一件事换个 id 又挂一遍，图上凭空多出上万重复节点。
+    # 所以幂等键不能只看 id，还要看内容（同书 + 同名 + 同年即视为同一件事）。
+    ev_keys = _keys(con,
+                    "MATCH (n:Event) WHERE n.from_book=$b "
+                    "RETURN n.name, n.year", {"b": bid})
+    pe_keys = _keys(con,
+                    "MATCH (n:Person) WHERE n.from_book=$b "
+                    "RETURN n.name", {"b": bid})
     linked = _ids(con,
                   "MATCH (b:Book {id:$b})-[e:KGREL {rel:'书载观点'}]->(n) "
                   "RETURN n.id", {"b": bid})
@@ -127,7 +146,7 @@ def main() -> int:
 
     plan: list[dict] = []
     seen: set[str] = set()
-    n_exist = n_noyear = 0
+    n_exist = n_noyear = n_dup = 0
     for ext in proposals:
         kind = ext.kind
         if kind not in ("event", "person"):
@@ -141,6 +160,12 @@ def main() -> int:
             n_exist += 1                      # 节点已在，只补归属边
         elif kind == "event" and not ext.year:
             n_noyear += 1                     # 没有年份的事件不知道挂哪年，不写
+            continue
+        elif not exists and (
+                ((ext.name or ""), ext.year) in ev_keys
+                if kind == "event" else ((ext.name or ""),) in pe_keys):
+            # id 对不上但内容已经有了：多半是重算后序号错位，别再挂第二遍
+            n_dup += 1
             continue
         plan.append({"kind": kind, "id": nid, "name": ext.name or "",
                      "year": ext.year, "place": ext.place or "",
@@ -159,7 +184,8 @@ def main() -> int:
     log(f"\n拟新建节点 {n_node:,}（事件 {by_kind.get('event', 0):,} / "
         f"人物 {by_kind.get('person', 0):,}）")
     log(f"  节点已在图内、只需补归属边 {n_exist:,}；"
-        f"无年份的事件跳过 {n_noyear:,}")
+        f"无年份的事件跳过 {n_noyear:,}；"
+        f"内容重复（换过 id）跳过 {n_dup:,}")
     log(f"  合计待补『书载观点』边 {n_edgeplan:,} 条")
 
     log("\n-- 拟写入样例（前 10）--")

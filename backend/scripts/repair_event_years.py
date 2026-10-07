@@ -46,7 +46,8 @@ for _s in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import config                                       # noqa: E402
-from app.ingestion.bookrun import source_path                # noqa: E402
+from app.ingestion.bookrun import (load_manifest,            # noqa: E402
+                                   source_path)
 from app.ingestion.extract import _loads_tolerant            # noqa: E402
 from app.ingestion.rag import chunk_text                     # noqa: E402
 from zhconv import convert as zh_convert                     # noqa: E402
@@ -131,45 +132,67 @@ def _piece_offsets(text: str, pieces: list[str]) -> list[int]:
     return offs
 
 
-def build_era_hits(text: str, eras: dict[str, list[tuple[int, int]]]
+def build_era_hits(text: str, eras: dict[str, list[tuple[int, int]]],
+                   span: tuple[int, int] | None = None
                    ) -> list[tuple[int, str, int, int]]:
     """全篇扫一遍年号出现位置：[(位置, 年号, 第几年, 公元年)]。
 
-    《本纪》按年记事，年号只在章节开头写一次，后面整段都归它管。与其让模型
-    去猜，不如直接找「本段之前最近出现的那个年号」。
+    年号重名很常见（「泰始」有西晉 265 與南朝宋 465 两朝，「永和」有東漢 136
+    與東晉 345），早先固定取第一条，于是《资治通鉴》里 467 年的事被判成 267 年
+    ——差出两百年。这里按原文顺序逐条消歧：编年体是按年代写的，所以拿上一条
+    已定的年份当参照，挑「不倒退且最接近」的那条；本书年代跨度之内者优先。
     """
     names = sorted(eras, key=len, reverse=True)
     pat = re.compile("(" + "|".join(re.escape(n) for n in names) +
                      r")([元一二三四五六七八九十]{1,3})?年")
-    hits = []
+    raw: list[tuple[int, str, int, list[int]]] = []
     for m in pat.finditer(text):
         nm = m.group(1)
         n = _cn2int(m.group(2)) if m.group(2) else 1
         if not n:
             continue
-        # 年号可能重名：挑起始年最接近上下文的那条（这里先取第一条，
-        # 年份在 era_year 里按同段其它判定再校正）
-        fy, ly = eras[nm][0]
-        y = fy + n - 1
-        if fy <= y <= ly:
-            hits.append((m.start(), nm, n, y))
+        cands = [fy + n - 1 for fy, ly in eras[nm] if fy <= fy + n - 1 <= ly]
+        if cands:
+            raw.append((m.start(), nm, n, cands))
+    lo, hi = (int(span[0]), int(span[1])) if span else (None, None)
+    prev = lo if lo is not None else (raw[0][3][0] if raw else 0)
+    hits = []
+    for pos, nm, n, cands in raw:
+        pool = [y for y in cands if lo is None or lo - 60 <= y <= hi + 60]
+        y = min(pool or cands,
+                key=lambda v: (0 if v >= prev else 1, abs(v - prev)))
+        hits.append((pos, nm, n, y))
+        prev = max(prev, y)
     return hits
 
 
 def chronicle_year(offs: list[int], hits: list[tuple[int, str, int, int]],
-                   pi: int, max_back: int = 3000
+                   pi: int, max_back: int = 8000, piece_len: int = 0,
+                   span: tuple[int, int] | None = None,
+                   eras: dict[str, list[tuple[int, int]]] | None = None
                    ) -> tuple[int, str, str] | None:
-    """本块之前最近的一个年号 → 该块的纪年（仅用于编年体段落）。"""
+    """本块之前最近的一个年号 → 该块的纪年。
+
+    只作最后兜底，且要过两道闸：年号不能重名（重名说明可能是另一个朝代），
+    结果要落在本书年代跨度附近。实测这套扫描即便消歧后也只有 52% 完全命中、
+    7% 错出百年，所以凡同块另有可采信年份的，一律走 piece_modal，不走这里。
+    """
     import bisect
     if pi >= len(offs):
         return None
-    limit = offs[pi] + 400          # 年号可能就写在本块开头
-    j = bisect.bisect_right([h[0] for h in hits], limit) - 1
+    end = offs[pi] + max(piece_len, 1)
+    j = bisect.bisect_right([h[0] for h in hits], end) - 1
     if j < 0:
         return None
     pos, nm, n, y = hits[j]
-    if limit - pos > max_back:      # 太远就不可信（可能已是上一卷/上一朝）
+    if end - pos > max_back:        # 太远就不可信（可能已是上一卷/上一朝）
         return None
+    if eras and len(eras.get(nm, [])) > 1:
+        return None                 # 重名年号不敢单凭扫描定朝代
+    if span:
+        lo, hi = int(span[0]), int(span[1])
+        if not (lo - 60 <= y <= hi + 60):
+            return None
     return y, nm, f"{nm}{n}年"
 
 
@@ -289,16 +312,18 @@ def repair_book(bid: str, a) -> int:
         return 0
 
     eras = load_eras()
-    hits = build_era_hits(text, eras)
-    log(f"年号表 {len(eras)} 个（CBDB NIAN_HAO），全篇命中 {len(hits):,} 处")
+    meta = (load_manifest().get(bid) or {})
+    span = tuple(int(x) for x in meta["span"]) if meta.get("span") else None
+    hits = build_era_hits(text, eras, span)
+    log(f"年号表 {len(eras)} 个（CBDB NIAN_HAO），全篇命中 {len(hits):,} 处"
+        f"{f'；本书跨度 {span[0]}~{span[1]}' if span else ''}")
 
     from app.llm import get_extract_llm
     llm = get_extract_llm()
     batch = datetime.now().strftime("%Y%m%d-%H%M%S")
     log(f"模型 {getattr(llm, 'name', '?')}  并发 {a.concurrency}")
 
-    result = {"filled": 0, "pieces": 0, "calls": 0, "fail": 0,
-              "agree": 0, "disagree": 0}
+    result = {"filled": 0, "pieces": 0, "calls": 0, "fail": 0, "scanned": 0}
 
     def work(item: tuple[int, str, dict]) -> None:
         pi, model, data = item
@@ -366,27 +391,30 @@ def repair_book(bid: str, a) -> int:
         if bad:
             got = {k: v for k, v in got.items() if v[2] not in bad}
 
-        # ---- 编年体兜底 ----
-        # 《本纪》按年记事，年号只在章节开头写一次。模型看不到就只能瞎编
-        # （抽查撞见过「慶元七年」这种根本不存在的年号）。这里按原文往前找
-        # 最近的一个年号，换算同样走年号表；顺手跟模型结果对账，看看一致率。
-        cy = chronicle_year(offs, hits, pi)
-        if cy and _annalistic(piece_text):
-            c_year, c_reign, c_label = cy
-            llm_ys = [v[0] for v in got.values()]
-            if llm_ys:
-                modal = Counter(llm_ys).most_common(1)[0][0]
-                if abs(modal - c_year) <= 1:
-                    result["agree"] += 1
-                else:
-                    result["disagree"] += 1
-                    log(f"  块 {pi}: 年号扫描 {c_year} vs 模型 {modal} 不一致"
-                        f"（{c_label}）")
+        # ---- 兜底 ----
+        # 主路：同块内已被模型（且过闸门）定年的事件，取众数给剩下的。留一法
+        # 实测 76% 完全命中、90% 误差 ≤10 年、只有 1% 错出百年。
+        # 备路：年号扫描（仅当同块一条都定不下来，且年号不重名）。实测它只有
+        # 52% 命中、7% 错出百年，所以只拿来兜底，并顺手跟模型结果对账。
+        if got:
+            modal = Counter(v[0] for v in got.values()).most_common(1)[0][0]
             for e in (data.get("events") or []):
                 nm = (e.get("name") or "").strip()
                 if e.get("year") or _norm(nm) in got:
                     continue
-                got[_norm(nm)] = (c_year, 0.6, c_label, "chronicle", None)
+                got[_norm(nm)] = (modal, 0.5, f"同块众数 {modal}",
+                                  "piece_modal", None)
+        else:
+            cy = chronicle_year(offs, hits, pi, piece_len=len(piece_text),
+                                span=span, eras=eras)
+            if cy and _annalistic(piece_text):
+                c_year, c_reign, c_label = cy
+                result["scanned"] += 1
+                for e in (data.get("events") or []):
+                    nm = (e.get("name") or "").strip()
+                    if e.get("year") or _norm(nm) in got:
+                        continue
+                    got[_norm(nm)] = (c_year, 0.6, c_label, "chronicle", None)
 
         if not got:
             if n_bad_reign or bad:
@@ -421,14 +449,123 @@ def repair_book(bid: str, a) -> int:
     log(f"\n✓ 完成：处理 {result['pieces']:,} 块 / {result['calls']:,} 次调用，"
         f"补上 {result['filled']:,} 条年份（失败 {result['fail']} 次）"
         f"{'（干跑，未写库）' if a.dry_run else ''}")
-    if result["agree"] or result["disagree"]:
-        tot = result["agree"] + result["disagree"]
-        log(f"  对账：年号扫描与模型判定一致 {result['agree']}/{tot} "
-            f"（{100 * result['agree'] / tot:.0f}%）")
+    if result["scanned"]:
+        log(f"  其中 {result['scanned']} 块靠年号扫描兜底（同块一条都定不下来时）")
     if not a.dry_run:
         log("  下一步：ingest_one.py <book> --finalize-only --max-events 200000"
             " --out <path> → mount_proposals_direct.py <book> --artifact <path>")
     con.close()
+    return 0
+
+
+def ensure_correction_table(con) -> None:
+    con.execute("""CREATE TABLE IF NOT EXISTS event_year_corrections (
+            book_id VARCHAR, piece_idx INTEGER, name VARCHAR,
+            old_year INTEGER, new_year INTEGER, how VARCHAR,
+            batch VARCHAR, ts TIMESTAMP)""")
+
+
+def recheck_book(bid: str, a) -> int:
+    """复核已落库的 chronicle 年份（不调 LLM）。
+
+    早先的年号扫描固定取同名年号的第一条朝代，于是《资治通鉴》467 年的事被
+    判成 267 年；《宋史》之外还有 623 条干脆落在本书年代跨度之外。这里按新
+    规则重算：
+      - 同块另有年号表确认过的年份 → 改成同块众数（留一法实测 76% 命中）
+      - 否则年号不重名、且落在本书跨度内 → 保留
+      - 否则 → 撤掉年份，避免拿错朝代的年份污染时间轴
+    """
+    con = duckdb.connect(str(DUCKDB_PATH))
+    ensure_table(con)
+    ensure_correction_table(con)
+    rows = con.execute(
+        "SELECT piece_idx, name, year, reign FROM event_year_repairs "
+        "WHERE book_id=? AND how='chronicle'", [bid]).fetchall()
+    if not rows:
+        con.close()
+        return 0
+    confirmed: dict[int, list[int]] = {}
+    for pi, y in con.execute(
+            "SELECT piece_idx, year FROM event_year_repairs "
+            "WHERE book_id=? AND how IN ('era','era_agree')", [bid]).fetchall():
+        if y is not None:
+            confirmed.setdefault(pi, []).append(y)
+    eras = load_eras()
+    meta = (load_manifest().get(bid) or {})
+    span = tuple(int(x) for x in meta["span"]) if meta.get("span") else None
+    batch = datetime.now().strftime("%Y%m%d-%H%M%S")
+    n_modal = n_keep = n_drop = 0
+    by_piece: dict[int, list[tuple[str, int, str]]] = {}
+    for pi, nm, y, reign in rows:
+        by_piece.setdefault(pi, []).append((nm or "", y, reign or ""))
+    for pi, items in by_piece.items():
+        modal = (Counter(confirmed[pi]).most_common(1)[0][0]
+                 if confirmed.get(pi) else None)
+        new_years = {}
+        for nm, y, reign in items:
+            if modal is not None:
+                new_years[nm] = (modal, "piece_modal")
+                n_modal += 1
+            else:
+                base = re.sub(r"\d+年$", "", reign)
+                ok_span = True
+                if span and y is not None:
+                    ok_span = span[0] - 60 <= y <= span[1] + 60
+                if len(eras.get(base, [])) == 1 and ok_span:
+                    new_years[nm] = (y, "chronicle_keep")
+                    n_keep += 1
+                else:
+                    new_years[nm] = (None, "chronicle_dropped")
+                    n_drop += 1
+        row = con.execute(
+            "SELECT model, payload FROM extract_raw WHERE book_id=? "
+            "AND piece_idx=?", [bid, pi]).fetchone()
+        if row:
+            model, payload = row
+            try:
+                data = json.loads(payload)
+            except Exception:
+                data = None
+            if data is not None:
+                changed = False
+                for e in (data.get("events") or []):
+                    key = (e.get("name") or "").strip()
+                    if key not in new_years:
+                        continue
+                    ny, how = new_years[key]
+                    old = e.get("year")
+                    if old == ny:
+                        continue
+                    if ny is None:
+                        e.pop("year", None)
+                        e.pop("year_source", None)
+                    else:
+                        e["year"] = ny
+                        e["year_source"] = "llm_repair"
+                    changed = True
+                    con.execute(
+                        "INSERT INTO event_year_corrections VALUES "
+                        "(?,?,?,?,?,?,?,?)",
+                        [bid, pi, key, old, ny, how, batch, datetime.now()])
+                if changed and not a.dry_run:
+                    con.execute(
+                        "UPDATE extract_raw SET payload=? WHERE book_id=? "
+                        "AND piece_idx=? AND model=?",
+                        [json.dumps(data, ensure_ascii=False), bid, pi, model])
+    log(f"《{bid}》复核 {len(rows)} 条：改同块众数 {n_modal}、保留 {n_keep}、"
+        f"撤掉 {n_drop}{'（干跑未写库）' if a.dry_run else ''}")
+    con.close()
+    return 0
+
+
+def recheck_all(a) -> int:
+    con = duckdb.connect(str(DUCKDB_PATH))
+    books = [r[0] for r in con.execute(
+        "SELECT DISTINCT book_id FROM event_year_repairs "
+        "WHERE how='chronicle' ORDER BY 1").fetchall()]
+    con.close()
+    for b in books:
+        recheck_book(b, a)
     return 0
 
 
@@ -440,9 +577,14 @@ def main() -> int:
     ap.add_argument("--min-confidence", type=float, default=0.5)
     ap.add_argument("--dry-run", action="store_true", help="只问不写")
     ap.add_argument("--force", action="store_true", help="连已补过的块也重跑")
+    ap.add_argument("--recheck", action="store_true",
+                    help="复核已落库的 chronicle 年份（不调 LLM）")
     ap.add_argument("--debug", action="store_true",
                     help="打印原始返回，用于排查提示词/解析")
     a = ap.parse_args()
+    if a.recheck:
+        return recheck_all(a) if a.book_id.upper() == "ALL" \
+            else recheck_book(a.book_id, a)
     if a.book_id.upper() == "ALL":
         return run_all(a)
     return repair_book(a.book_id, a)
