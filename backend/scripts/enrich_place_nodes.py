@@ -96,8 +96,9 @@ def build_place_index():
 def load_event_addr_index():
     """复用事件坐标脚本的口径：名字+年份 → addr_id（这里只要 addr_id 集合）。"""
     sys_modules = sys.path
-    from scripts.enrich_event_coords import build_index, match_event  # noqa: E402
-    return build_index(), match_event
+    from scripts.enrich_event_coords import (build_index, match_event,  # noqa: E402
+                                             build_seed_alias, ACCEPT_PREFIXES)
+    return build_index(), match_event, build_seed_alias, ACCEPT_PREFIXES
 
 
 def main() -> int:
@@ -111,13 +112,16 @@ def main() -> int:
     info, xy_by_addr = build_place_index()
     log(f"CBDB 地址 {len(info):,} 条，其中有坐标 {len(xy_by_addr):,}")
 
-    idx, match_fn = load_event_addr_index()
+    idx, match_fn, build_seed_alias, ACCEPT_PREFIXES = load_event_addr_index()
     log(f"事件侧词典 {len(idx):,} 个名字")
 
     # 读写共用同一个 Database：Kuzu 是单写者模型（文件锁），同进程里先开只读
     # 再开写会报 Could not set lock；Python 对象析构有延迟，光赋 None 释放不掉
     db = kuzu.Database(KUZU_DB)
     c = kuzu.Connection(db)
+    seed_alias = build_seed_alias(c)
+    log(f"种子古称 {len(seed_alias)} 个（建康 / 建业 / 镐京…）："
+        f"这些只接回已有种子节点，不另建 Place")
     existing: set[str] = set()
     existing_names: set[str] = set()
     q = c.execute("MATCH (n:Place) RETURN n.id, n.name")
@@ -138,10 +142,12 @@ def main() -> int:
             continue
         # 与时事事件坐标同一条口径：判定必须一致，否则会造出「事件有坐标、
         # 却找不到对应 Place 节点」的半截状态
-        lv, rec = match_fn(idx, place, year, a.relaxed_gap)
-        if rec is None or not any(lv.startswith(p) for p in
-                                  ("ok_", "relaxed_", "suffix_ok_",
-                                   "suffix_relaxed_")):
+        lv, rec = match_fn(idx, place, year, a.relaxed_gap, seed_alias)
+        # seed_alias 不建节点：建康 / 建业 就是南京，图上已有 nanjing 种子，
+        # 再建一个 place:xxx 会让前端出现两个「南京」。连边时按古称接回种子。
+        if rec is None or lv == "seed_alias":
+            continue
+        if not lv.startswith(ACCEPT_PREFIXES):
             continue
         ref[rec[5]] += 1
     c = None                      # 释放读连接即可，db 要留给写阶段复用

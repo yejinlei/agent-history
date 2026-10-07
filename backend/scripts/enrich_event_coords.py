@@ -66,7 +66,7 @@ _RANK = {"Du": 0, "Fu": 1, "Zhou": 2, "Jun": 3, "Xian": 4, "xian": 4,
 # 遇繁体写法（京師）直接漏判，这里只保留一处真值源。
 from app.geo_rules import (addr_is_bad, blocked_everywhere, blocked_when_relaxed,  # noqa: E402
                            suffix_variants, too_broad, prov_level,
-                           SUFFIX_BLOCK_ADMIN)
+                           blocked_when_stable, SUFFIX_BLOCK_ADMIN)
 
 
 def log(m: str) -> None:
@@ -115,8 +115,68 @@ def build_index() -> dict[str, list[tuple]]:
     return idx
 
 
+_LIAO_TWIN: set[str] | None = None
+
+
+def liao_twin_addrs() -> set[str]:
+    """「辽金另设的同名州」条目 id 集合。
+
+    CBDB 里有一批地名同时存在两个：一个是关内本来的州县，一个是辽金在东北/内蒙
+    另设的同名州（如《雍州》既有长安那条，又有吉林那条；《长安》也有一条落在
+    辽宁）。按年代匹配的档位不会出问题——辽代事件本来就该用辽金条目；但
+    「忽略年代」的 stable/majority 档会被它们带偏（雍州 2/3 票被吉林拿走）。
+    所以只在这两档里排除，别处照用。
+    """
+    global _LIAO_TWIN
+    if _LIAO_TWIN is not None:
+        return _LIAO_TWIN
+    con = sqlite3.connect(f"file:{CBDB}?mode=ro", uri=True)
+    far: dict[str, list[str]] = {}
+    near: dict[str, list[str]] = {}
+    for aid, chn, fy, x, y in con.execute(
+            "SELECT c_addr_id, c_name_chn, c_firstyear, x_coord, y_coord "
+            "FROM ADDR_CODES"):
+        try:
+            fx, fyy, ify = float(x), float(y), int(fy)
+        except Exception:
+            continue
+        if 900 <= ify <= 1200 and fx >= 117 and fyy >= 41:
+            far.setdefault(chn, []).append(str(aid))
+        elif fx < 117 or fyy < 41:
+            near.setdefault(chn, []).append(str(aid))
+    con.close()
+    _LIAO_TWIN = {a for nm, ids in far.items() if nm in near for a in ids}
+    return _LIAO_TWIN
+
+
+# 被采纳的档位前缀（严格 > 放宽 > 后缀 > 坐标稳定 > 种子古称）
+ACCEPT_PREFIXES = ("ok_", "relaxed_", "suffix_ok_", "suffix_relaxed_",
+                   "stable_all", "stable_major", "seed_alias")
+
+
+def build_seed_alias(c) -> dict[str, tuple]:
+    """种子 Place 的古称 → (节点 id, lon, lat, 正名)。
+
+    enrich_place_nodes 建派生节点时「与种子同名一律跳过」，所以建康 / 建业 /
+    镐京这类只有古称、CBDB 里没有条目的名字会整批漏掉（建康 1,746 条事件）。
+    种子节点的 ancient 列存着这些古称，这里拿来兜底。
+    """
+    m: dict[str, tuple] = {}
+    q = c.execute("MATCH (n:Place) WHERE NOT n.id STARTS WITH 'place:' "
+                  "RETURN n.id, n.name, n.ancient, n.lon, n.lat")
+    while q.has_next():
+        sid, nm, ancient, lon, lat = q.get_next()
+        if not lon or not lat:
+            continue
+        for a in str(ancient or "").split("/"):
+            a = zh_convert(a.strip(), "zh-cn")
+            if a:
+                m[a] = (sid, lon, lat, nm)
+    return m
+
+
 def match_event(idx: dict[str, list[tuple]], place: str, year: int | None,
-                relaxed_gap: int = 0):
+                relaxed_gap: int = 0, seed_alias: dict | None = None):
     """返回 (档位, 选中条目)。只认强证据。
 
     relaxed_gap > 0 时开放「放宽档」：事件年份没落在词条年代区间、但词表里同名
@@ -124,8 +184,54 @@ def match_event(idx: dict[str, list[tuple]], place: str, year: int | None,
     """
     lv, rec = _match_core(idx, place, year, relaxed_gap)
     if lv in ("miss", "out_of_window", "ambig_unresolved"):
-        return _match_suffix(idx, place, year, relaxed_gap)
+        lv, rec = _match_suffix(idx, place, year, relaxed_gap)
+    if lv in ("miss", "suffix_ambig") or lv.startswith("blocked"):
+        if lv.startswith("blocked"):
+            return lv, rec
+        lv, rec = _match_stable(idx, place, seed_alias)
     return lv, rec
+
+
+def _match_stable(idx: dict[str, list[tuple]], place: str,
+                  seed_alias: dict | None):
+    """忽略年代的两档兜底：
+
+    stable   —— 同一个地名在 CBDB 里的**所有**条目坐标都是同一点，说明这地方没
+                搬过家（冀州 / 南阳 / 彭城 / 会稽…），那么不管事件在哪一年都可以
+                用这一个点。要求至少 2 条条目互证，避免孤证。
+    majority —— 条目坐标不完全一致，但多数（≥60%）指向同一点，且严格多于第二多
+                的点（长安 7/9、成都 7/8）。同样要求 ≥3 条条目。
+    seed_alias —— 种子 Place 的古称（建康 / 建业 / 镐京…），词表里压根没有这些
+                名字，但图上手工节点存着。
+
+    为什么敢忽略年代：卡在这一步的绝大多数是**先秦两汉魏晋南北朝**的事件——CBDB
+    的年代覆盖集中在唐以后，按年代匹配永远差一口气。而这些县治千年未动，坐标是
+    同一个点，年代窗口在这里没有信息量。仍然保留全部黑名单（京师/中都这类真的
+    会搬家的通称、省级大区、已知坏坐标）。
+    """
+    key = zh_convert(place.strip(), "zh-cn")
+    if (blocked_everywhere(key) or blocked_when_relaxed(key) or prov_level(key)
+            or blocked_when_stable(key)):
+        return "blocked_movable", None
+    recs = [r for r in idx.get(key, [])
+            if not addr_is_bad(r[5]) and str(r[5]) not in liao_twin_addrs()]
+    if recs:
+        coords = Counter((round(r[2], 3), round(r[3], 3)) for r in recs)
+        top, n1 = coords.most_common(1)[0]
+        second = coords.most_common(2)[1][1] if len(coords) > 1 else 0
+        if len(coords) == 1 and len(recs) >= 2:
+            for r in recs:
+                if (round(r[2], 3), round(r[3], 3)) == top:
+                    return "stable_all", r
+        if len(recs) >= 3 and n1 >= 2 and second < n1 and n1 / len(recs) >= 0.6:
+            for r in recs:
+                if (round(r[2], 3), round(r[3], 3)) == top:
+                    return "stable_major", r
+        return "stable_ambig", None
+    if seed_alias and key in seed_alias:
+        sid, lon, lat, nm = seed_alias[key]
+        return "seed_alias", (None, None, lon, lat, "", sid, nm)
+    return "miss", None
 
 
 def _match_suffix(idx: dict[str, list[tuple]], place: str, year: int | None,
@@ -260,13 +366,16 @@ def main() -> int:
     q = None
     log(f"待匹配事件 {len(rows):,} 条")
 
+    seed_alias = build_seed_alias(c)
+    log(f"种子古称兜底：{len(seed_alias)} 个"
+        f"（{', '.join(sorted(seed_alias)[:8])}…）")
+
     hits: list[dict] = []
     stat: Counter = Counter()
     for eid, place, year, lon, lat in rows:
-        lv, rec = match_event(idx, place, year, a.relaxed_gap)
+        lv, rec = match_event(idx, place, year, a.relaxed_gap, seed_alias)
         stat[lv] += 1
-        accepted = (lv.startswith("ok_") or lv.startswith("relaxed_")
-                    or lv.startswith("suffix_ok_") or lv.startswith("suffix_relaxed_"))
+        accepted = lv.startswith(ACCEPT_PREFIXES)
         if not accepted or rec is None:
             continue
         hits.append({
@@ -279,9 +388,7 @@ def main() -> int:
 
     total = sum(stat.values())
     ok = sum(stat[k] for k in stat
-             if k.startswith("ok_") or k.startswith("relaxed_")
-             or k.startswith("suffix_ok_")
-             or k.startswith("suffix_relaxed_"))
+             if k.startswith(ACCEPT_PREFIXES))
     log("匹配统计：")
     for k, v in stat.most_common():
         log(f"  {k:<22} {v:>8,}  {v / total * 100:>5.1f}%")

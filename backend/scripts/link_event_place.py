@@ -90,14 +90,22 @@ def build_addr_map(con) -> dict[str, tuple[str, str, float, float]]:
 
 
 def build_seed_map(c: kuzu.Connection) -> dict[str, tuple[str, float, float]]:
-    """已在图上的非派生 Place（手工/种子）按名字索引。"""
+    """已在图上的非派生 Place（手工/种子）：正名 + 古称都能命中。
+
+    古称这一项是后来补的：建康 / 建业在 CBDB 里没有词条，是靠种子 nanjing 的
+    ancient 列（建业 / 建康 / 集庆 / 应天）取到坐标的，连边时若只按正名「南京」
+    匹配，这 1,935 条事件就会找不到节点。
+    """
     m: dict[str, tuple[str, float, float]] = {}
     q = c.execute("MATCH (n:Place) WHERE NOT n.id STARTS WITH 'place:' "
-                  "RETURN n.id, n.name, n.lon, n.lat")
+                  "RETURN n.id, n.name, n.ancient, n.lon, n.lat")
     while q.has_next():
-        i, nm, lon, lat = q.get_next()
-        if nm:
-            m[zh_convert(str(nm).strip(), "zh-cn")] = (i, lon or 0.0, lat or 0.0)
+        i, nm, ancient, lon, lat = q.get_next()
+        forms = {str(nm or "").strip()}
+        forms |= {a.strip() for a in str(ancient or "").split("/")}
+        for f in forms:
+            if f:
+                m[zh_convert(f, "zh-cn")] = (i, lon or 0.0, lat or 0.0)
     return m
 
 
