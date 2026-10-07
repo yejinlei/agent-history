@@ -107,6 +107,12 @@ cd backend; python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 `完整性` 一行是自检结果：**缺块 / 缺结果 / 报错 三项都为 0 才算跑完整**
 （空块与回退块只是质量提示，不算未完成，但 `--repair` 会试着再补）。
 
+> **别把两种「块」混着数**：`切块 N` 是入库的最小切片（检索/上下文用），
+> `抽取块 M/P` 才是 LLM 的抽取单元（若干切片拼成一块）。判断"这本书跑完没有"
+> 只看 `book_runs.pieces / done`（或 `scripts/ingest_one.py --status`）。
+> 拿 `chunks` 表的行数去比 `ingest_progress` 的条数，会凭空算出几万块的缺口
+> ——《宋史》7,215 个切片对应 2,374 个抽取块，两者差三倍。
+
 常用开关：`--reset`（清进度重跑）、`--force`（连切块一起重跑）、`--embed`（算向量，可选）、`--no-store`（只写 DuckDB 与产物 JSON，不碰 Kuzu）、`--out`（指定产物路径）。
 
 ### 3.5 换网关后的验收（先跑 5 块）
