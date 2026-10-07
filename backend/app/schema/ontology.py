@@ -271,6 +271,20 @@ REL_TYPES: list[RelType] = [
     _R("从属", "Concept", "Concept", transitive=True, desc="观念谱系上下位"),
 ]
 
+# ---- 受控谓词：谓词归一后长尾的收敛目标 ----
+# 图谱里 49 万条边原先用了 1.4 万种谓词，71% 只出现过一次（「其水军被曹操
+# 所得」这类措辞根本没法查）。统一收敛到 app/ontology/predicates.py 的受控表
+# 之后，96.5% 的边落在这三十几种上。目录从那儿派生，不另抄一份，免得漂移。
+from app.ontology.predicates import CANON, CANON_PAIRS          # noqa: E402
+
+_seen = {(t.rel, t.src, t.dst) for t in REL_TYPES}
+for _rel, _desc in CANON:
+    _src, _dst = CANON_PAIRS.get(_rel, ("Person", "Person"))
+    if (_rel, _src, _dst) not in _seen:
+        REL_TYPES.append(_R(_rel, _src, _dst, desc=_desc))
+        _seen.add((_rel, _src, _dst))
+del _seen, _rel, _desc, _src, _dst
+
 
 # ---- 允许的端点组合目录（写边硬约束；既有自由关系名沿用，仅约束端点类型）----
 REL_PAIRS: set[tuple[str, str]] = {
