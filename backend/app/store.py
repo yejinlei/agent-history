@@ -187,6 +187,28 @@ def _strip_node(d: dict) -> dict:
     return d
 
 
+def _sources(raw: str | None) -> list:
+    """解析 book_sources，容忍早期写入的残缺条目。
+
+    有些条目是挂载脚本写的，只有 level/work/from_book，没有 text、confidence
+    还是 null——按 Source 模型严格校验会把整条实体的加载打断（一个人物都读不
+    进来）。这里补齐必填字段的默认值再校验，宁可信息不全也不要读不出来。
+    """
+    out = []
+    for x in _loads_or(raw, []):
+        if not isinstance(x, dict):
+            continue
+        x.setdefault("text", "")
+        x.setdefault("translation", "")
+        if x.get("confidence") is None:
+            x["confidence"] = 0.0
+        try:
+            out.append(Source.model_validate(x))
+        except Exception:
+            continue
+    return out
+
+
 def _loads_or(s: str | None, default):
     """json.loads 的容错版：解析不出来就返回默认值。
 
@@ -1096,11 +1118,8 @@ class Store:
     def _load_kuzu(self) -> None:
 
         def nodes(table: str) -> list[dict]:
-            r = self._x(f"MATCH (n:{table}) RETURN n")
-            out = []
-            while r.has_next():
-                out.append(_strip_node(dict(r.get_next()[0])))
-            return out
+            # 显式列名，避开读不出来的 Event.book_sources（见 _UNREADABLE_PROPS）
+            return [_strip_node(d) for d in self._node_rows(table)]
 
         self.dynasties = [Dynasty(
             id=d["id"], name=d["name"], span=(d["span_s"], d["span_e"]),
@@ -1125,8 +1144,8 @@ class Store:
             significance=d["significance"], dispute=d["dispute"],
             route=json.loads(d["route"]) if d["route"] else None,
             route_label=d["route_label"], from_book=d["from_book"],
-            book_sources=[Source.model_validate(x)
-                          for x in json.loads(d["book_sources"] or "[]")],
+            # 这一列读不出来（见 _UNREADABLE_PROPS），加载时按空处理
+            book_sources=_sources(d.get("book_sources")),
             external_ids=json.loads(d.get("external_ids") or "{}"),
             provenance=d.get("provenance")
             or ("book" if d.get("from_book") else "seed"),
@@ -1134,16 +1153,21 @@ class Store:
             version=d.get("version") or 1)
             for d in nodes("Event")]
 
+        def _years(raw) -> tuple[str, str]:
+            """years 是 (生, 卒) 两元组；空值要补成两个空串，否则模型校验不过。"""
+            ys = tuple(_loads_or(raw, []))
+            return (ys + ("", ""))[:2]
+
         self.people = [Person(
-            id=d["id"], name=d["name"], years=tuple(json.loads(d["years"])),
-            dynasty_id=d["dynasty_id"], home=d["home"],
+            # years / aliases 早期写入时可能留成空串，直接 json.loads 会把整批
+            # 人物的加载打断，所以一律走容错版
+            id=d["id"], name=d["name"], years=_years(d["years"]),
+            dynasty_id=d["dynasty_id"], home=d.get("home") or "",
             lon=d["lon"], lat=d["lat"],
-            aliases=json.loads(d.get("aliases") or "[]"),
+            aliases=_loads_or(d.get("aliases"), []),
             narrative=Narrative(student=d["n_student"],
                                 scholar=d["n_scholar"], fan=d["n_fan"]),
-            from_book=d["from_book"],
-            book_sources=[Source.model_validate(x)
-                          for x in json.loads(d["book_sources"] or "[]")],
+            from_book=d["from_book"], book_sources=_sources(d["book_sources"]),
             external_ids=json.loads(d.get("external_ids") or "{}"),
             provenance=d.get("provenance")
             or ("book" if d.get("from_book") else "seed"),
@@ -1262,6 +1286,38 @@ class Store:
     _KG_LABELS = ("Dynasty", "Event", "Person", "Place", "Book",
                    "Institution", "Artifact", "Concept")
 
+    # Event.book_sources 这一列读不出来：任何扫到它的语句（哪怕 LIMIT 10、
+    # 哪怕按主键单行读）都会让进程以 -1073741819 直接消失，SET 重写救不回来，
+    # 而这一版 Kuzu 不支持 DROP / RENAME COLUMN。所以凡取节点一律走显式列名，
+    # 把这里登记的坏列跳掉——值还在库里，只是没人能读。
+    _UNREADABLE_PROPS = {"Event": frozenset({"book_sources"})}
+
+    def _node_cols(self, label: str) -> list[str]:
+        r = self._x(f"CALL table_info('{label}') RETURN name")
+        names = []
+        while r.has_next():
+            names.append(r.get_next()[0])
+        skip = self._UNREADABLE_PROPS.get(label, ())
+        return [n for n in names if n not in skip]
+
+    def _node_rows(self, label: str, where: str = "",
+                   params: dict | None = None,
+                   limit: int = 0) -> list[dict]:
+        """按显式列名取节点（自动跳过读不出来的列）。"""
+        cols = self._node_cols(label)
+        proj = ", ".join(f"n.{c}" for c in cols)
+        q = f"MATCH (n:{label}) {where} RETURN {proj}"
+        if limit:
+            q += f" LIMIT {limit}"
+        rows = self._all(q, params)
+        return [dict(zip(cols, row)) for row in rows]
+
+    def _view_cols(self, label: str) -> list[str]:
+        """图浏览只要 id/名称/年份这几个字段，够 `_kg_node` 用即可。"""
+        cols = self._node_cols(label)
+        return [c for c in ("name", "title", "year", "span_s", "span_e",
+                            "kind") if c in cols]
+
     def _all(self, query: str, params: dict | None = None) -> list:
         """加锁执行并在锁内取完全部行（Result 不跨锁使用）。"""
         with self._lock:
@@ -1318,20 +1374,20 @@ class Store:
             return []
         col = "title" if table == "Book" else "name"
         if q.strip():
-            rows = self._all(
-                f"MATCH (n:{table}) WHERE n.{col} CONTAINS $q RETURN n "
-                f"LIMIT $lim", {"q": q.strip(), "lim": limit})
+            rows = self._node_rows(table, f"WHERE n.{col} CONTAINS $q",
+                                   {"q": q.strip()}, limit)
         else:
-            rows = self._all(
-                f"MATCH (n:{table}) RETURN n LIMIT $lim", {"lim": limit})
-        return [self._kg_node(dict(row[0])) for row in rows]
+            rows = self._node_rows(table, limit=limit)
+        for d in rows:
+            d["_label"] = table
+        return [self._kg_node(d) for d in rows]
 
     def _find_node(self, node_id: str) -> dict | None:
         for t in self._KG_LABELS:
-            rows = self._all(
-                f"MATCH (n:{t} {{id:$id}}) RETURN n", {"id": node_id})
+            rows = self._node_rows(t, "WHERE n.id = $id", {"id": node_id}, 1)
             if rows:
-                return dict(rows[0][0])
+                rows[0]["_label"] = t
+                return rows[0]
         return None
 
     def kg_subgraph(self, node_id: str) -> dict | None:
@@ -1341,16 +1397,33 @@ class Store:
         clabel = center["_label"]
         nodes: dict[str, dict] = {node_id: self._kg_node(center)}
         edges: dict[str, dict] = {}
-        rows = self._all(
-            f"MATCH (n:{clabel} {{id:$id}})-[r:KGREL]-(m) RETURN n, r, m",
-            {"id": node_id})
-        for n_d, r_d, m_d in rows:
-            nd, rd, md = dict(n_d), dict(r_d), dict(m_d)
-            nodes.setdefault(md["id"], self._kg_node(md))
-            forward = rd.get("_src") == nd.get("_id")
-            s, t = (nd, md) if forward else (md, nd)
-            eid = f"{s['id']}->{t['id']}:{rd['rel']}"
-            edges.setdefault(eid, self._kg_edge(eid, s, t, rd["rel"]))
+
+        def _attach(mid: str, lbl: str, rel: str, forward: bool) -> None:
+            if mid not in nodes:
+                rows = self._node_rows(lbl, "WHERE n.id = $id", {"id": mid}, 1)
+                if not rows:
+                    return
+                rows[0]["_label"] = lbl
+                nodes[mid] = self._kg_node(rows[0])
+            s, t = (node_id, mid) if forward else (mid, node_id)
+            eid = f"{s}->{t}:{rel}"
+            edges.setdefault(eid, {"id": eid, "source": s, "target": t,
+                                   "rel": rel})
+
+        # 逐标签查两端：不能用 `RETURN n, r, m`（那样会读整节点，撞上
+        # Event.book_sources 就崩），也不能不标标签——不带标签的 pattern
+        # Kuzu 不给建边。这里只取邻居 id 与边类型，节点展示字段再按需补。
+        for lbl in self._KG_LABELS:
+            if not self._has_table(lbl):
+                continue
+            for mid, rel in self._all(
+                    f"MATCH (n:{clabel} {{id:$id}})-[r:KGREL]->(m:{lbl}) "
+                    f"RETURN m.id, r.rel", {"id": node_id}):
+                _attach(mid, lbl, rel, True)
+            for mid, rel in self._all(
+                    f"MATCH (n:{clabel} {{id:$id}})<-[r:KGREL]-(m:{lbl}) "
+                    f"RETURN m.id, r.rel", {"id": node_id}):
+                _attach(mid, lbl, rel, False)
         return {"center": node_id, "nodes": list(nodes.values()),
                 "edges": list(edges.values())}
 
@@ -1358,13 +1431,20 @@ class Store:
         """全图：所有 KGREL 端点节点 + 全部已解析边（悬空边无节点不可视化）。"""
         nodes: dict[str, dict] = {}
         edges: dict[str, dict] = {}
-        rows = self._all("MATCH (n)-[r:KGREL]->(m) RETURN n, r, m")
-        for n_d, r_d, m_d in rows:
-            nd, rd, md = dict(n_d), dict(r_d), dict(m_d)
-            nodes.setdefault(nd["id"], self._kg_node(nd))
-            nodes.setdefault(md["id"], self._kg_node(md))
-            eid = f"{nd['id']}->{md['id']}:{rd['rel']}"
-            edges.setdefault(eid, self._kg_edge(eid, nd, md, rd["rel"]))
+        # 节点按标签分表取（显式列名，避开坏列），边只取两端 id
+        for lbl in self._KG_LABELS:
+            if not self._has_table(lbl):
+                continue
+            for d in self._node_rows(lbl):
+                d["_label"] = lbl
+                nodes.setdefault(d["id"], self._kg_node(d))
+        for a, b, rel in self._all(
+                "MATCH (a)-[r:KGREL]->(b) RETURN a.id, b.id, r.rel"):
+            if a not in nodes or b not in nodes:
+                continue
+            eid = f"{a}->{b}:{rel}"
+            edges.setdefault(eid, {"id": eid, "source": a, "target": b,
+                                   "rel": rel})
         return {"center": None, "nodes": list(nodes.values()),
                 "edges": list(edges.values())}
 
