@@ -82,7 +82,9 @@ class Dynasty(_Governed):
 class Event(_Governed):
     id: str
     name: str
-    year: int
+    # None = 年份未知（书中未标纪年、或抽取未能换算成公元年）。
+    # 严禁填 0 表示未知：0 会被当成合法年份，把事件堆到时间轴原点。
+    year: Optional[int] = None
     # 高精度日期（夏历/农历月日；明清部分为公历，叙述中注明）。None = 仅精确到年
     month: Optional[int] = None
     day: Optional[int] = None

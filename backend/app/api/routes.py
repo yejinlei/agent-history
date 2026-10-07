@@ -133,7 +133,7 @@ def timeline(year: int, month: int | None = None,
     if month is not None:
         # 月粒度切片：该年该月（含精确到月/日的事件）
         evts = [e for e in evts if e.year == year and e.month == month]
-    evts.sort(key=lambda e: (e.year, e.month or 0, e.day or 0))
+    evts.sort(key=lambda e: (e.year is None, e.year or 0, e.month or 0, e.day or 0))
     return {"year": year, "month": month, "dynasty": dynasty_dict(d),
             "parallel": [dynasty_dict(x) for x in parallel],
             "events": [event_dict(e) for e in evts]}
@@ -141,11 +141,15 @@ def timeline(year: int, month: int | None = None,
 
 @router.get("/events")
 def all_events(frm: int = -8000, to: int = 1912):
-    """全量事件轻量索引（供时间轴缩放落点）。"""
+    """全量事件轻量索引（供时间轴缩放落点）。
+
+    年份未知（None）的事件不进入索引：它们落不到时间轴上任何位置，
+    放进列表只会让前端在 0 年附近堆出一团无法分辨的点。
+    """
     out = [
         {"id": e.id, "name": e.name, "year": e.year, "month": e.month,
          "day": e.day, "dynasty_id": e.dynasty_id, "from_book": e.from_book}
-        for e in store.events if frm <= e.year <= to
+        for e in store.events if e.year is not None and frm <= e.year <= to
     ]
     out.sort(key=lambda x: (x["year"], x["month"] or 0, x["day"] or 0))
     return out
@@ -658,12 +662,14 @@ def _plan_actions(question: str, kind: str | None, ent) -> list[dict]:
     route = getattr(ent, "route", None)
     if kind == "event" and route and any(
             k in q for k in ("过程", "进程", "路线", "怎么打", "如何", "经过", "发展", "进军", "西行", "下西洋")):
-        actions.append({"type": "set_year", "year": ent.year})
+        if ent.year is not None:
+            actions.append({"type": "set_year", "year": ent.year})
         actions.append({"type": "select_entity", "kind": "event", "id": ent.id})
         actions.append({"type": "show_route", "id": ent.id})
         return actions
     if kind == "event":
-        actions.append({"type": "set_year", "year": ent.year})
+        if ent.year is not None:
+            actions.append({"type": "set_year", "year": ent.year})
         actions.append({"type": "select_entity", "kind": "event", "id": ent.id})
         actions.append({"type": "fly_to", "lon": ent.lon, "lat": ent.lat, "zoom": 6})
         # 影响/波及类提问：圈出大致影响范围，并脉冲强调事发地
@@ -673,9 +679,10 @@ def _plan_actions(question: str, kind: str | None, ent) -> list[dict]:
                             "km": km, "label": f"{ent.name}·影响范围示意"})
             actions.append({"type": "pulse", "lon": ent.lon, "lat": ent.lat, "label": ent.name})
         # 同年相关事件高亮（让"当时的局势"类提问有空间感）
-        if any(k in q for k in ("局势", "同时", "哪些", "背景")):
+        if ent.year is not None and any(k in q for k in ("局势", "同时", "哪些", "背景")):
             same = [e.id for e in store.events
-                    if e.id != ent.id and abs(e.year - ent.year) <= 5]
+                    if e.id != ent.id and e.year is not None
+                    and abs(e.year - ent.year) <= 5]
             if same:
                 actions.append({"type": "highlight_events", "ids": same[:12]})
     elif kind == "person":

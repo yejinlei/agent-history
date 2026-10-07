@@ -225,6 +225,20 @@ def _loads_or(s: str | None, default):
         return default
 
 
+def _year_of(v) -> int | None:
+    """年份归一化：0 视为「未知」。
+
+    早期写入把「抽不出年份」记成 0（全书约 2 万个事件）。0 是合法年份，会
+    把这些事件全部堆到时间轴原点，还会让排序/区间过滤出错。这里统一在加载
+    入口归成 None，读取侧按「无年份」处理（不参与时间轴与区间过滤）。
+    """
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return None if n == 0 else n
+
+
 class Store:
     def __init__(self) -> None:
         self.dynasties: list[Dynasty] = []
@@ -1134,13 +1148,16 @@ class Store:
             for d in nodes("Dynasty")]
 
         self.events = [Event(
-            id=d["id"], name=d["name"], year=d["year"],
+            id=d["id"], name=d["name"], year=_year_of(d["year"]),
             month=d["month"], day=d["day"],
             date_confidence=d["date_conf"] or "exact",
             dynasty_id=d["dynasty_id"], lon=d["lon"], lat=d["lat"],
             place=d["place"], actors=json.loads(d["actors"] or "[]"),
-            narrative=Narrative(student=d["n_student"],
-                                scholar=d["n_scholar"], fan=d["n_fan"]),
+            # 补建节点（如 scripts/fix_dangling.py 补的种子人物）可能没有叙事列，
+            # 直接传 None 会让 pydantic 拒绝整条实体 —— 一个空节点就把服务拖崩。
+            narrative=Narrative(student=d["n_student"] or "",
+                                scholar=d["n_scholar"] or "",
+                                fan=d["n_fan"] or ""),
             significance=d["significance"], dispute=d["dispute"],
             route=json.loads(d["route"]) if d["route"] else None,
             route_label=d["route_label"], from_book=d["from_book"],
@@ -1154,8 +1171,12 @@ class Store:
             for d in nodes("Event")]
 
         def _years(raw) -> tuple[str, str]:
-            """years 是 (生, 卒) 两元组；空值要补成两个空串，否则模型校验不过。"""
-            ys = tuple(_loads_or(raw, []))
+            """years 是 (生, 卒) 两元组；空值要补成两个空串，否则模型校验不过。
+
+            元素统一转字符串：补建节点写入的是整数年，Kuzu 会原样回传 int，
+            而 Person.years 是 tuple[str, str]，类型不符会把整批人物加载打断。
+            """
+            ys = tuple("" if v is None else str(v) for v in _loads_or(raw, []))
             return (ys + ("", ""))[:2]
 
         self.people = [Person(
@@ -1165,8 +1186,9 @@ class Store:
             dynasty_id=d["dynasty_id"], home=d.get("home") or "",
             lon=d["lon"], lat=d["lat"],
             aliases=_loads_or(d.get("aliases"), []),
-            narrative=Narrative(student=d["n_student"],
-                                scholar=d["n_scholar"], fan=d["n_fan"]),
+            narrative=Narrative(student=d["n_student"] or "",
+                                scholar=d["n_scholar"] or "",
+                                fan=d["n_fan"] or ""),
             from_book=d["from_book"], book_sources=_sources(d["book_sources"]),
             external_ids=json.loads(d.get("external_ids") or "{}"),
             provenance=d.get("provenance")
@@ -1179,8 +1201,9 @@ class Store:
             id=d["id"], name=d["name"], ancient=d["ancient"],
             modern=d["modern"], lon=d["lon"], lat=d["lat"],
             aliases=json.loads(d.get("aliases") or "[]"),
-            narrative=Narrative(student=d["n_student"],
-                                scholar=d["n_scholar"], fan=d["n_fan"]),
+            narrative=Narrative(student=d["n_student"] or "",
+                                scholar=d["n_scholar"] or "",
+                                fan=d["n_fan"] or ""),
             external_ids=json.loads(d.get("external_ids") or "{}"),
             provenance=d.get("provenance") or "seed",
             created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
@@ -1653,7 +1676,8 @@ class Store:
                     added["person"] += 1
             elif ext.kind == "event":
                 node_id = ext.new_id
-                ev_year = ext.year or 0
+                # 年份未知一律 None，绝不填 0（0 是合法年份，会堆到时间轴原点）
+                ev_year = _year_of(ext.year)
                 # 朝代按事件年份推导，而非全书统一用 book.dynasty_id：
                 # 《资治通鉴》这类通史跨十余朝，整本书标一个朝代会把纪年归属搞错。
                 ev_dyn = book.dynasty_id
