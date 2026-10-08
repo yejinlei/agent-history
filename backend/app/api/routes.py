@@ -65,6 +65,8 @@ def event_dict(e, with_sources: bool = False) -> dict:
         "route": getattr(e, "route", None),
         "route_label": getattr(e, "route_label", None),
         "from_book": e.from_book,
+        # 子类（灾异/祥瑞/赦…）：None = 普通事件；前端据此默认折叠
+        "kind": getattr(e, "kind", None),
         "external_ids": getattr(e, "external_ids", {}) or {},
         "provenance": getattr(e, "provenance", "seed"),
     }
@@ -148,7 +150,8 @@ def all_events(frm: int = -8000, to: int = 1912):
     """
     out = [
         {"id": e.id, "name": e.name, "year": e.year, "month": e.month,
-         "day": e.day, "dynasty_id": e.dynasty_id, "from_book": e.from_book}
+         "day": e.day, "dynasty_id": e.dynasty_id, "from_book": e.from_book,
+         "kind": getattr(e, "kind", None)}
         for e in store.events if e.year is not None and frm <= e.year <= to
     ]
     out.sort(key=lambda x: (x["year"], x["month"] or 0, x["day"] or 0))

@@ -28,6 +28,7 @@ from app import config
 from app.data import seed
 from app.extended_books import CANONICAL, EXTENDED, scope_of
 from app.warehouse import warehouse
+from app.ontology.event_kind import kind_of
 from app.schema.ontology import (
     Book, Dynasty, Event, Extract, Institution, Artifact, Concept,
     Narrative, Person, Place, Source, REL_PAIRS,
@@ -1161,6 +1162,8 @@ class Store:
             significance=d["significance"], dispute=d["dispute"],
             route=json.loads(d["route"]) if d["route"] else None,
             route_label=d["route_label"], from_book=d["from_book"],
+            # 子类（灾异/祥瑞/赦…）在加载时派生，供前端折叠用
+            kind=kind_of(d["name"]),
             # 这一列读不出来（见 _UNREADABLE_PROPS），加载时按空处理
             book_sources=_sources(d.get("book_sources")),
             external_ids=json.loads(d.get("external_ids") or "{}"),

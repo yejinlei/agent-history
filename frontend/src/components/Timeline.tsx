@@ -102,6 +102,7 @@ function clamp01(a: number, b: number): [number, number] {
 
 export default function Timeline({ dynasties, books, events, year, emperorText, playing, onTogglePlay, onYear, onPickEvent, onPickDynasty, selectedDynastyId }: Props) {
   const [view, setView] = useState({ c: (YMIN + YMAX) / 2, s: FULL });
+  const [showOmen, setShowOmen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrubbing = useRef(false);
@@ -189,13 +190,17 @@ export default function Timeline({ dynasties, books, events, year, emperorText, 
   const laneLeft = (lane: number) => 2 + lane * BLOCK;
   const lanesW = (maxLane + 1) * BLOCK + 6;
 
-  /* 可视范围内的事件落点 */
+  /* 可视范围内的事件落点。
+     灾异/祥瑞/赦这类编年体套话默认折叠：它们每条都是一次独立记录
+     （如「日食」249 条跨 234 年），不折叠会淹没真正的大事。 */
+  const omenCount = useMemo(() => events.filter((e) => e.kind).length, [events]);
   const dots = useMemo(
     () =>
       events
+        .filter((e) => showOmen || !e.kind)
         .map((e) => ({ e, v: evPos(e) }))
         .filter(({ v }) => v >= from && v <= to),
-    [events, from, to],
+    [events, from, to, showOmen],
   );
   const dynColor = useMemo(() => {
     const m = new Map<string, string>();
@@ -217,6 +222,15 @@ export default function Timeline({ dynasties, books, events, year, emperorText, 
           <button onClick={() => zoomBtn(-1)} title="放大">＋</button>
           <button onClick={() => setView({ c: (YMIN + YMAX) / 2, s: FULL })} title="复位">复位</button>
           <button className={playing ? "on" : ""} onClick={onTogglePlay} title="播放/暂停">{playing ? "⏸" : "▶"}</button>
+          {omenCount > 0 && (
+            <button
+              className={showOmen ? "on" : ""}
+              onClick={() => setShowOmen((v) => !v)}
+              title={`灾异/祥瑞/大赦等编年体记录共 ${omenCount} 条，默认折叠`}
+            >
+              灾异 {showOmen ? "✓" : omenCount}
+            </button>
+          )}
         </span>
       </div>
 

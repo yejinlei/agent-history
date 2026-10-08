@@ -106,6 +106,9 @@ class Event(_Governed):
     # 动态本体挂载元数据
     from_book: Optional[str] = None
     book_sources: list["Source"] = Field(default_factory=list)
+    # 事件子类（灾异/祥瑞/赦 等编年体套话）。由 app.ontology.event_kind 在加载时
+    # 派生，**不落库**：Kuzu 这一版加不了列，落库只有 DROP 重建一条路。
+    kind: Optional[str] = None
 
 
 class Person(_Governed):

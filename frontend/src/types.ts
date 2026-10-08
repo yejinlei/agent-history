@@ -61,6 +61,9 @@ export interface TlEvent {
   day?: number | null;
   dynasty_id: string;
   from_book?: string | null;
+  /** 事件子类：日食星变 / 地震山崩 / 水旱蝗饥 / 雨雪雹霜 / 疫疠 / 祥瑞 / 赦。
+   *  null = 普通事件。编年体里的灾异与套话记录，前端默认折叠（可展开）。 */
+  kind?: string | null;
 }
 
 export interface PersonItem {
