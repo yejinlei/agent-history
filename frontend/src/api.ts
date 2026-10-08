@@ -1,5 +1,5 @@
 import type {
-  ActionEntry, AgentDef, AgentTool, Book, ChatResp, Dynasty, EntityDetail, EntityKind, EventItem, KGNode, KGSchema, KGSubgraph, MergePayload, OntologyIndex, PendingOp, Proposal, TlEvent,
+  ActionEntry, AgentDef, AgentTool, Book, ChatResp, Claim, ClaimConflict, Dynasty, EntityDetail, EntityKind, EventItem, KGNode, KGSchema, KGSubgraph, MergePayload, OntologyIndex, PendingOp, Proposal, TlEvent,
 } from "./types";
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -38,6 +38,16 @@ export const api = {
       `/api/timeline?year=${year}${dynastyId ? `&dynasty_id=${encodeURIComponent(dynastyId)}` : ""}`,
     ),
   allEvents: () => getJSON<TlEvent[]>("/api/events"),
+  claims: (about?: string, stance?: string, limit = 300) =>
+    getJSON<{ items: Claim[]; total: number }>(
+      `/api/claims?limit=${limit}` +
+        (about ? `&about=${encodeURIComponent(about)}` : "") +
+        (stance ? `&stance=${encodeURIComponent(stance)}` : ""),
+    ),
+  claimConflicts: (limit = 50) =>
+    getJSON<{ items: ClaimConflict[]; total: number }>(
+      `/api/claims/conflicts?limit=${limit}`,
+    ),
   maps: () =>
     getJSON<{ catalog: Record<string, unknown>; tile_tpl: string; attribution: string }>(
       "/api/maps",

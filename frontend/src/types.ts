@@ -53,6 +53,35 @@ export interface EventItem {
 }
 
 /** 时间轴落点用轻量事件 */
+/** 主张/论断（Phase 7）。分歧靠并列呈现，不做裁决。 */
+export interface Claim {
+  id: string;
+  name: string;
+  /** 论断原文；结构化观点常常只有立场、没有原句 */
+  text: string | null;
+  /** 立场：肯定 / 否定 / 存疑 / 调和 / 评论 */
+  stance: string;
+  claimant_id: string;
+  claimant_kind: string;
+  claimant_name: string;
+  about_id: string;
+  about_kind: string;
+  about_name: string;
+  year: number | null;
+  from_book: string | null;
+  confidence: number;
+  kind: string | null;
+  provenance: string;
+}
+
+/** 同一对象上出现互斥立场的一组主张 */
+export interface ClaimConflict {
+  about_id: string;
+  about_name: string;
+  stances: string[];
+  claims: Claim[];
+}
+
 export interface TlEvent {
   id: string;
   name: string;

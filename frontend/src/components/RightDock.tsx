@@ -5,9 +5,11 @@ import OntologyNav from "./OntologyNav";
 import BookMount from "./BookMount";
 import AgentManager from "./AgentManager";
 import { ArchView, DetailView, SourceView } from "./SidePanel";
+import ClaimsView from "./ClaimsView";
 import SplitBar from "./SplitBar";
 
-export type DockId = "onto" | "detail" | "source" | "books" | "agents" | "arch" | "ask";
+export type DockId =
+  | "onto" | "detail" | "source" | "books" | "agents" | "arch" | "claims" | "ask";
 
 interface Props {
   /** 当前显示的面板（hover 临时或 pinned） */
@@ -42,6 +44,7 @@ const ITEMS: { id: DockId; label: string; icon: string }[] = [
   { id: "source", label: "史料溯源", icon: "📜" },
   { id: "books", label: "挂载书库", icon: "📚" },
   { id: "agents", label: "Agent 管理", icon: "🤖" },
+  { id: "claims", label: "多视角", icon: "⚖" },
   { id: "arch", label: "技术架构", icon: "⚙" },
 ];
 
@@ -95,6 +98,7 @@ export default function RightDock(p: Props) {
               )}
               {p.active === "arch" && <ArchView />}
               {p.active === "agents" && <AgentManager />}
+              {p.active === "claims" && <ClaimsView selectById={p.selectById} />}
               {p.active === "ask" && (
                 <AskPanel
                   selectById={p.selectById}
