@@ -147,7 +147,11 @@ class Person(_Governed):
     id: str
     name: str
     years: tuple[str, str]
-    dynasty_id: str
+    # None = 朝代未知。人物没有年份字段可用（书抽取人物的 years 多为空），
+    # 早先入库直接沿用了书籍的 dynasty_hint，导致《资治通鉴》里的张骞、曹操
+    # 全被标成北宋（司马光的朝代）。错误的朝代比「未知」更误导，故置空，
+    # 见 scripts/fix_person_dynasty.py。
+    dynasty_id: Optional[str] = None
     home: str
     # 籍贯/主要活动地坐标（用于地图标记，可选）
     lon: Optional[float] = None
