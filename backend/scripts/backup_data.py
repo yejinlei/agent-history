@@ -9,13 +9,19 @@
 
 建议**停服后**执行（Kuzu/DuckDB 是单写者，运行中复制可能拿到中间状态）。
 
-用法：
-    python scripts/backup_data.py                 # 备份到 _backup/<时间戳>/，保留最近 3 份
+2026-10-08 起：本地全量冷备份已废弃。一份 15 GB 级，而本机系统盘曾因此被
+拖到只剩 0.24 GB（uvicorn 进程直接消失）。现在数据以**网盘备份**为准，本脚本
+只在要往网盘同步目录吐一份时用 `--dest`：
+
+    python scripts/backup_data.py --dest D:\\网盘\\chronosino   # 推荐用法
+    python scripts/backup_data.py --what kg --dest X:\\bak      # 只备份图库
     python scripts/backup_data.py --keep 5        # 保留最近 5 份
-    python scripts/backup_data.py --what kg       # 只备份图库
     python scripts/backup_data.py --list          # 列出现有备份
+
+脚本会在开跑前做空间预检，目标盘装不下会直接拒绝（不会备份一半）。
+
 恢复：
-    停服 → 把备份目录里的 kg/、warehouse/ 覆盖回 app/data/ → 启服 → e2e_flow.py 验收
+    停服 → 把备份目录里的 kg/、warehouse/ 覆盖回 DATA_DIR/ → 启服 → e2e_flow.py 验收
 """
 from __future__ import annotations
 
@@ -91,6 +97,17 @@ def main() -> int:
     what = a.what or list(TARGETS)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = (Path(a.dest) / stamp) if a.dest else (_BACKUP / stamp)
+
+    # 空间预检：图库 7 GB 量级，写满了会把系统盘拖到 0（2026-10-08 实测：C 盘
+    # 只剩 0.24 GB 时 uvicorn 进程直接消失）。宁可提前报错，不要备份一半。
+    need = sum(size_of(TARGETS[n][0]) for n in what if TARGETS[n][0].exists())
+    free = shutil.disk_usage(dest.parent if dest.parent.exists() else dest).free
+    if need > free:
+        print(f"[拒绝] 需要 {need/1e9:.1f} GB，目标盘仅剩 {free/1e9:.1f} GB")
+        print("       请用 --dest 指向有空间的盘（或网盘同步目录），"
+              "或用 --what 只备份其中几项")
+        return 1
+    print(f"空间预检通过：需 {need/1e6:,.0f} MB，可用 {free/1e9:.1f} GB")
     dest.mkdir(parents=True, exist_ok=True)
     print(f"备份 → {dest}（源 {_DATA}）")
 
