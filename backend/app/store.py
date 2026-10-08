@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """本地本体 + 知识图谱持久化仓储（Kuzu 嵌入式图库）
 
-主存储：backend/app/data/kg/kuzu_db（Kuzu 数据库文件，随仓库版本化）
+主存储：<DATA_DIR>/kg/kuzu_db，DATA_DIR 见 app/config.py（默认 C:\\agent-history-data）。
+    注意：仓库里的 backend/app/data/ 只是早年遗留路径（那份备份已删），
+    真数据在 DATA_DIR 下，量级 7 GB，不入库、靠脚本重建。
     节点表：Dynasty / Event / Person / Place / Source / Book
     关系表：KGREL（多源多目标类型化边，rel 属性区分语义：
             参与 / 任职于 / 师承 / 发生于 / 触发 / 奠定 / 书载观点 …）

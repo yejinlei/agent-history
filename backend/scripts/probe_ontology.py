@@ -31,8 +31,11 @@ from rdflib import Graph, Namespace, RDF, URIRef, Literal
 print("=" * 60)
 print("1) 外部本体可解析性")
 
-cidoc = _BACKEND / "app/data/core/raw/cidoc/cidoc_crm.owl"
-owltime = _BACKEND / "app/data/core/raw/owltime/owl_time.rdf"
+from app.config import DATA_DIR  # 真实数据根；仓库内 app/data 只是遗留空壳
+
+_DATA = Path(DATA_DIR)
+cidoc = _DATA / "core" / "raw" / "cidoc" / "cidoc_crm.owl"
+owltime = _DATA / "core" / "raw" / "owltime" / "owl_time.rdf"
 
 for p, fmt in ((cidoc, "xml"), (owltime, "xml")):
     if not p.exists():
@@ -126,7 +129,7 @@ print("3) SHACL 能否检出真实问题")
 # 用真实悬空边 + 合法边构造数据图
 data = Graph()
 data.bind("ex", EX)
-dang_p = _BACKEND / "app/data/kg/dangling_edges.json"
+dang_p = _DATA / "kg" / "dangling_edges.json"
 dangling = []
 if dang_p.exists():
     dangling = json.loads(dang_p.read_text(encoding="utf-8"))

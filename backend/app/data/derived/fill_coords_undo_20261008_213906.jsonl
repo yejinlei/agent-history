@@ -1,0 +1,13 @@
+{"event_id": "liangshu_e53", "lon": 118.8, "lat": 32.1, "old_lon": null, "old_lat": null, "how": "seed_alias", "place": "建康", "src": "200"}
+{"event_id": "songshu_e1556", "lon": 117.18768, "lat": 34.26963, "old_lon": null, "old_lat": null, "how": "stable_major", "place": "徐州", "src": "200"}
+{"event_id": "读通鉴论_e889", "lon": 112.38263, "lat": 34.66528, "old_lon": null, "old_lat": null, "how": "stable_all", "place": "洛阳", "src": "200"}
+{"event_id": "读通鉴论_e1865", "lon": 108.90698, "lat": 34.24642, "old_lon": null, "old_lat": null, "how": "stable_major", "place": "长安", "src": "200"}
+{"event_id": "houhanshu_e378", "lon": 102.59974, "lat": 24.67328, "old_lon": null, "old_lat": null, "how": "stable_all", "place": "昆阳", "src": "200"}
+{"event_id": "hanshu_e438", "lon": 117.18768, "lat": 34.26963, "old_lon": null, "old_lat": null, "how": "stable_all", "place": "彭城", "src": "200"}
+{"event_id": "hanshu_e1419", "lon": 115.02284, "lat": 37.21234, "old_lon": null, "old_lat": null, "how": "stable_all", "place": "巨鹿", "src": "200"}
+{"event_id": "jinshi_e5426", "lon": 123.16798, "lat": 41.26585, "old_lon": null, "old_lat": null, "how": "stable_major", "place": "辽阳", "src": "200"}
+{"event_id": "jinshu_e449", "lon": 118.8, "lat": 32.1, "old_lon": null, "old_lat": null, "how": "seed_alias", "place": "建康", "src": "200"}
+{"event_id": "jinshu_e3641", "lon": 118.8, "lat": 32.1, "old_lon": null, "old_lat": null, "how": "seed_alias", "place": "建康", "src": "200"}
+{"event_id": "jinshu_e4020", "lon": 114.30666, "lat": 30.57367, "old_lon": null, "old_lat": null, "how": "stable_major", "place": "江夏", "src": "200"}
+{"event_id": "jinshu_e6855", "lon": 108.90698, "lat": 34.24642, "old_lon": null, "old_lat": null, "how": "stable_major", "place": "长安", "src": "200"}
+{"event_id": "songshi_e9697", "lon": 112.83916, "lat": 35.50432, "old_lon": null, "old_lat": null, "how": "stable_all", "place": "泽州", "src": "200"}

@@ -1,0 +1,44 @@
+[
+ {
+  "a": "zhangqian",
+  "b": "zhangqian_ev",
+  "rel": "出使",
+  "from_book": null
+ },
+ {
+  "a": "hanwudi",
+  "b": "zhangqian_ev",
+  "rel": "派遣",
+  "from_book": null
+ },
+ {
+  "a": "zhenghe",
+  "b": "zhenghe_ev",
+  "rel": "率领",
+  "from_book": null
+ },
+ {
+  "a": "mingchengzu",
+  "b": "zhenghe_ev",
+  "rel": "派遣",
+  "from_book": null
+ },
+ {
+  "a": "linzexu",
+  "b": "yaopian",
+  "rel": "禁烟",
+  "from_book": null
+ },
+ {
+  "a": "lihongzhang",
+  "b": "jiawu",
+  "rel": "主和",
+  "from_book": null
+ },
+ {
+  "a": "linzexu",
+  "b": "humen_xiaoyan",
+  "rel": "主持销烟",
+  "from_book": null
+ }
+]

@@ -23,9 +23,14 @@ backend/.env
 !backend/.env.example
 
 # ---- 运行时数据库 ----
-# 目前不入库；等《资治通鉴》等书构建完成后，再放开这两行一起提交
-#   warehouse/ = DuckDB（进度 / 原始抽取结果 / 元数据）≈518 MB
-#   kg/        = Kuzu 图库（实体与关系）≈668 MB
+# 结论（2026-10-08）：**永不入库**。两条硬约束：
+#   1) GitHub 单文件硬限 100 MB，而 warehouse 588 MB、kg 912 MB，普通 git 直接拒；
+#      Git LFS 也不行——免费账户仅 1 GB 存储，装不下，且上传极易失败。
+#   2) 真数据根本不在这个仓库目录里：config.DATA_DIR 指向 C:\agent-history-data
+#      （warehouse 591 MB + kg 7.2 GB）。backend/app/data/ 只是早年遗留路径，
+#      里面那份 2026-10-05 的过期副本已于 10-08 删除。
+# 重建路径：scripts/fetch_core.py + manifest.json（URL + sha256）→ 入库管线。
+# 需要版本化的台账请放 backend/app/data/derived/（小、可 diff，3 MB 量级）。
 backend/app/data/warehouse/
 backend/app/data/kg/
 
