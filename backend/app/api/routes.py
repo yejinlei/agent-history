@@ -1271,6 +1271,49 @@ def _claim_dict(c) -> dict:
     }
 
 
+@router.get("/evidence")
+def api_evidence(about: str = "", q: str = "", stance: str = "",
+                 limit: int = 50):
+    """Phase 3 证据四维：按 about 精确取到各书记载该事的段落。
+
+    about 给实体 id；q 给实体名片段（模糊匹配后取其 id）。两者都给时以 about 为准。
+    验收口径（PLAN Phase 3）：问「焚书坑儒」能取到**多本书**论此事的段落。
+    """
+    from app.warehouse import warehouse
+    ids: list[str] = []
+    if about:
+        ids = [about]
+    elif q:
+        ids = [r[0] for r in warehouse.query(
+            "SELECT entity_id FROM entities WHERE name LIKE ? LIMIT 20",
+            [f"%{q}%"])]
+    if not ids:
+        return {"items": [], "total": 0, "matched": []}
+    ph = ",".join("?" * len(ids))
+    params: list = [*ids]
+    where = f"COALESCE(e.about_entity, e.about_event) IN ({ph})"
+    if stance:
+        where += " AND e.stance = ?"
+        params.append(stance)
+    params.append(limit)
+    rows = warehouse.query(
+        "SELECT e.book_id, e.idx, e.about_entity, e.about_event, e.stance, "
+        "e.place_id, substr(c.text, 1, 400) FROM evidence e "
+        "JOIN chunks c ON c.book_id = e.book_id AND c.idx = e.idx "
+        f"WHERE {where} ORDER BY e.book_id, e.idx LIMIT ?", params)
+    items = [{"book_id": b, "idx": i, "about": ae or ev, "stance": st,
+              "place_id": pl, "text": tx}
+             for b, i, ae, ev, st, pl, tx in rows]
+    names = {}
+    for r in warehouse.query(
+            "SELECT entity_id, name FROM entities WHERE entity_id IN "
+            f"({','.join('?' * len(ids))})", ids):
+        names[r[0]] = r[1]
+    return {"items": items, "total": len(items),
+            "matched": [{"id": i, "name": names.get(i)} for i in ids],
+            "books": sorted({it["book_id"] for it in items})}
+
+
 @router.get("/claims")
 def api_claims(about: str = "", stance: str = "", limit: int = 200):
     """各方主张。about 为空则列全部；stance 可筛 肯定/否定/评论。"""
