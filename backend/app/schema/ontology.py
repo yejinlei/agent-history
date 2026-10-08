@@ -79,6 +79,38 @@ class Dynasty(_Governed):
     lane: int = 0                            # 0=主时间线；1/2=并立政权车道（三国、南北朝、五代十国、辽宋金）
 
 
+class Claim(_Governed):
+    """主张 / 论断：谁主张什么、依据是什么。
+
+    Phase 7（多视角综合分析）的核心类型。Event / Person 只记「发生了什么」，
+    Claim 记「谁主张什么」——不同史源对同一件事的分歧要靠它**并列**，而不是
+    互相覆盖（本体论 G4）。
+
+    与 Source 的区别：Source 是史料本身（原始文本层），Claim 是从史料里读出的
+    **论断**。一条 Source 可以被读出多个互相矛盾的 Claim。
+
+    text 允许为空：结构化观点（如「某人反对某事」）常常只有立场、没有原句。
+    """
+    id: str
+    name: str                            # 论断标题（短句）
+    text: Optional[str] = None           # 论断正文/原句摘录
+    claimant_id: str                     # 主张者：Person 或 Book 的 id
+    claimant_kind: str = "book"          # person / book
+    about_id: str                        # 论断对象：Event / Person / Place / Concept 的 id
+    about_kind: str = "event"            # event / person / place / concept
+    stance: str = "评论"                 # 肯定 / 否定 / 存疑 / 调和 / 评论
+    year: Optional[int] = None           # 论断提出的年份（多数史评无纪年，可空）
+    dynasty_id: Optional[str] = None
+    from_book: Optional[str] = None
+    confidence: float = 0.0
+    src_ids: list[str] = Field(default_factory=list)   # 依据的史料 id
+    kind: Optional[str] = None           # 论断类别：评价 / 考辨 / 褒贬 …
+
+    @property
+    def label(self) -> str:
+        return f"{self.name}（{self.stance}）"
+
+
 class Event(_Governed):
     id: str
     name: str
@@ -274,6 +306,16 @@ REL_TYPES: list[RelType] = [
     _R("推行", "Event", "Concept", desc="事件中推行某制度/观念"),
     _R("盛行于", "Concept", "Dynasty"),
     _R("从属", "Concept", "Concept", transitive=True, desc="观念谱系上下位"),
+    # ---- Claim（Phase 7 多视角）：论断及其相互关系 ----
+    _R("主张", "Claim", "Event", inverse="被主张", desc="论断指向的事件"),
+    _R("主张", "Claim", "Person", inverse="被主张", desc="论断指向的人物"),
+    _R("主张", "Claim", "Place", inverse="被主张"),
+    _R("主张", "Claim", "Concept", inverse="被主张"),
+    _R("提出", "Person", "Claim", inverse="所提出", desc="史家个人提出的论断"),
+    _R("提出", "Book", "Claim", inverse="所载", desc="某书提出的论断"),
+    _R("依据", "Claim", "Source", desc="论断所依据的史料"),
+    _R("反驳", "Claim", "Claim", inverse="被反驳", desc="两论断互斥"),
+    _R("支持", "Claim", "Claim", inverse="被支持", desc="两论断互相印证"),
 ]
 
 # ---- 受控谓词：谓词归一后长尾的收敛目标 ----
@@ -310,6 +352,10 @@ REL_PAIRS: set[tuple[str, str]] = {
     ("Artifact", "Source"), ("Artifact", "Institution"),
     ("Concept", "Dynasty"), ("Concept", "Concept"),
     ("Concept", "Person"), ("Concept", "Event"),
+    # Claim（Phase 7）
+    ("Claim", "Event"), ("Claim", "Person"), ("Claim", "Place"),
+    ("Claim", "Concept"), ("Claim", "Source"), ("Claim", "Claim"),
+    ("Person", "Claim"), ("Book", "Claim"),
     # 注：仅允许 Artifact→Source（铭文录为）；反向 Source→Artifact 无 DDL 支持
 }
 

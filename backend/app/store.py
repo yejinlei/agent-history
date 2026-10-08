@@ -32,7 +32,7 @@ from app.extended_books import CANONICAL, EXTENDED, scope_of
 from app.warehouse import warehouse
 from app.ontology.event_kind import kind_of
 from app.schema.ontology import (
-    Book, Dynasty, Event, Extract, Institution, Artifact, Concept,
+    Book, Claim, Dynasty, Event, Extract, Institution, Artifact, Concept,
     Narrative, Person, Place, Source, REL_PAIRS,
 )
 
@@ -108,6 +108,17 @@ _NODE_DDL = [
         id STRING, name STRING, kind STRING, material STRING, era_text STRING,
         year INT64, date_conf STRING, place_id STRING, museum STRING,
         aliases STRING, ca STRING, ua STRING, version INT64,
+        PRIMARY KEY(id))""",
+    # Phase 7：多视角综合分析。Claim 是新增表，_ensure_schema 会对「库里还没有的
+    # 表」单独 CREATE，不需要动任何既有表——Kuzu 这版加不了列，但加表没问题。
+    """CREATE NODE TABLE Claim(
+        id STRING, name STRING, text STRING,
+        claimant_id STRING, claimant_kind STRING,
+        about_id STRING, about_kind STRING,
+        stance STRING, year INT64, dynasty_id STRING,
+        from_book STRING, confidence DOUBLE, src_ids STRING, kind STRING,
+        external_ids STRING, provenance STRING,
+        ca STRING, ua STRING, version INT64,
         PRIMARY KEY(id))""",
     """CREATE NODE TABLE Concept(
         id STRING, name STRING, kind STRING, definition STRING,
@@ -251,6 +262,7 @@ class Store:
         self.institutions: list[Institution] = []
         self.artifacts: list[Artifact] = []
         self.concepts: list[Concept] = []
+        self.claims: list[Claim] = []     # Phase 7：多视角主张/论断
         self.sources: dict[str, list[Source]] = {}
         self.books: list[Book] = []
         self.edges: list[dict] = []
@@ -804,7 +816,8 @@ class Store:
         for table, objs in (("Dynasty", self.dynasties), ("Event", self.events),
                             ("Person", self.people), ("Place", self.places),
                             ("Book", self.books), ("Institution", self.institutions),
-                            ("Artifact", self.artifacts), ("Concept", self.concepts)):
+                            ("Artifact", self.artifacts), ("Concept", self.concepts),
+                            ("Claim", getattr(self, "claims", []))):
             for o in objs:
                 idx[o.id] = table
         for owner, srcs in self.sources.items():
@@ -1108,6 +1121,24 @@ class Store:
                  "oy": con.origin_year, "aliases": _j(con.aliases),
                  "ca": con.created_at, "ua": con.updated_at, "ver": con.version})
 
+        for cl in getattr(self, "claims", []):
+            self._x(
+                "CREATE (n:Claim {id:$id, name:$name, text:$text,"
+                " claimant_id:$cid, claimant_kind:$ckind,"
+                " about_id:$aid, about_kind:$akind, stance:$stance,"
+                " year:$year, dynasty_id:$did, from_book:$fb,"
+                " confidence:$conf, src_ids:$srcs, kind:$kind,"
+                " external_ids:$ext, provenance:$prov,"
+                " ca:$ca, ua:$ua, version:$ver})",
+                {"id": cl.id, "name": cl.name, "text": cl.text,
+                 "cid": cl.claimant_id, "ckind": cl.claimant_kind,
+                 "aid": cl.about_id, "akind": cl.about_kind,
+                 "stance": cl.stance, "year": cl.year, "did": cl.dynasty_id,
+                 "fb": cl.from_book, "conf": cl.confidence,
+                 "srcs": _j(cl.src_ids), "kind": cl.kind,
+                 "ext": _j(cl.external_ids), "prov": cl.provenance,
+                 "ca": cl.created_at, "ua": cl.updated_at, "ver": cl.version})
+
         # 切块不再写入 Kuzu：真值源为 DuckDB warehouse
         # （迁移见 _sync_chunks_to_warehouse，写入见 set_chunks）
 
@@ -1215,6 +1246,23 @@ class Store:
             version=d.get("version") or 1)
             for d in nodes("Place")]
 
+        # Claim 是 Phase 7 才加的表：老库里没有，_ensure_schema 会补建，但这里
+        # 必须先问一句再查，否则 MATCH (c:Claim) 直接抛「表不存在」。
+        self.claims = [Claim(
+            id=d["id"], name=d["name"], text=d.get("text"),
+            claimant_id=d["claimant_id"],
+            claimant_kind=d.get("claimant_kind") or "book",
+            about_id=d["about_id"], about_kind=d.get("about_kind") or "event",
+            stance=d.get("stance") or "评论",
+            year=_year_of(d.get("year")), dynasty_id=d.get("dynasty_id"),
+            from_book=d.get("from_book"), confidence=d.get("confidence") or 0.0,
+            src_ids=_loads_or(d.get("src_ids"), []), kind=d.get("kind"),
+            external_ids=json.loads(d.get("external_ids") or "{}"),
+            provenance=d.get("provenance") or "book",
+            created_at=d.get("ca") or "", updated_at=d.get("ua") or "",
+            version=d.get("version") or 1)
+            for d in (nodes("Claim") if self._has_table("Claim") else [])]
+
         srcs: dict[str, list[Source]] = {}
         r = self._x("MATCH (s:Source) RETURN s ORDER BY s.sid")
         while r.has_next():
@@ -1311,8 +1359,11 @@ class Store:
             self.edges.extend(json.loads(dang.read_text(encoding="utf-8")))
 
     # ================= 图库浏览（Kuzu 原生 Cypher） =================
+    # Claim 是 Phase 7 新增的标签。它不挂在 KGREL 上（关系表 FROM/TO 的标签集合
+    # 建表时就写死了，扩进去要重建整张关系表），只在自己的表里，靠
+    # claimant_id / about_id 与别的实体关联，因此这里的浏览接口要显式带上它。
     _KG_LABELS = ("Dynasty", "Event", "Person", "Place", "Book",
-                   "Institution", "Artifact", "Concept")
+                   "Institution", "Artifact", "Concept", "Claim")
 
     # Event.book_sources 这一列读不出来：任何扫到它的语句（哪怕 LIMIT 10、
     # 哪怕按主键单行读）都会让进程以 -1073741819 直接消失，SET 重写救不回来，

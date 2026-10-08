@@ -2,7 +2,14 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# 必须按 backend/.env 的**绝对路径**加载：load_dotenv() 默认从当前工作目录找，
+# 而脚本常从仓库根或其它目录启动，那时读不到 .env，DATA_DIR 会静默回落到
+# backend/app/data（空壳），后果是「改了半天其实改的是另一个库」。
+# 本文件在 backend/app/ 下，所以 .env 在**上两级**（backend/.env）。
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_env = _BACKEND_DIR / ".env"
+load_dotenv(_env if _env.exists() else Path(__file__).resolve().parent / ".env",
+            override=True)
 
 # LLM 提供方：stub（离线确定性）| openai
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "stub")

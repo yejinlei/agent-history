@@ -1226,3 +1226,86 @@ def operations_cancel(op_id: str):
         raise HTTPException(404, "operation not found")
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+# ================= Phase 7：多视角主张（Claim） =================
+# 分歧不靠互相覆盖，而靠**并列**：同一 about_id 上的各方主张都留在图里，
+# 由调用方（前端/Agent）决定怎么呈现或裁决（本体论 G4）。
+
+_name_idx: dict[str, str] | None = None
+
+
+def _name_of(nid: str) -> str:
+    """id → 名称（首次调用时建一次索引，挂载/卸载后需 _invalidate_names()）。"""
+    global _name_idx
+    if _name_idx is None:
+        idx: dict[str, str] = {}
+        for o in store.events:
+            idx[o.id] = o.name
+        for o in store.people:
+            idx[o.id] = o.name
+        for o in store.places:
+            idx[o.id] = o.name
+        for o in store.books:
+            idx[o.id] = o.title
+        for o in store.claims:
+            idx[o.id] = o.name
+        _name_idx = idx
+    return _name_idx.get(nid, nid)
+
+
+def _invalidate_names() -> None:
+    global _name_idx
+    _name_idx = None
+
+
+def _claim_dict(c) -> dict:
+    return {
+        "id": c.id, "name": c.name, "text": c.text, "stance": c.stance,
+        "claimant_id": c.claimant_id, "claimant_kind": c.claimant_kind,
+        "claimant_name": _name_of(c.claimant_id),
+        "about_id": c.about_id, "about_kind": c.about_kind,
+        "about_name": _name_of(c.about_id),
+        "year": c.year, "from_book": c.from_book, "confidence": c.confidence,
+        "kind": c.kind, "provenance": c.provenance,
+    }
+
+
+@router.get("/claims")
+def api_claims(about: str = "", stance: str = "", limit: int = 200):
+    """各方主张。about 为空则列全部；stance 可筛 肯定/否定/评论。"""
+    cs = [c for c in store.claims
+          if (not about or c.about_id == about)
+          and (not stance or c.stance == stance)]
+    cs.sort(key=lambda c: (-c.confidence, c.stance, c.id))
+    return {"items": [_claim_dict(c) for c in cs[:limit]], "total": len(cs)}
+
+
+@router.get("/claims/conflicts")
+def api_claim_conflicts(limit: int = 50):
+    """分歧并列：同一对象上出现互斥立场（肯定 vs 否定）的主张组。
+
+    这是「多视角综合分析」的落点——不裁决谁对，只把冲突摆出来。
+    """
+    by: dict[str, list] = {}
+    for c in store.claims:
+        by.setdefault(c.about_id, []).append(c)
+    out = []
+    for aid, cs in by.items():
+        stances = {c.stance for c in cs}
+        if "肯定" in stances and "否定" in stances:
+            out.append({
+                "about_id": aid, "about_name": _name_of(aid),
+                "stances": sorted(stances),
+                "claims": [_claim_dict(c) for c in cs],
+            })
+    out.sort(key=lambda x: -len(x["claims"]))
+    return {"items": out[:limit], "total": len(out)}
+
+
+@router.get("/claims/{claim_id}")
+def api_claim(claim_id: str):
+    for c in store.claims:
+        if c.id == claim_id:
+            return _claim_dict(c)
+    raise HTTPException(404, "claim not found")
