@@ -25,6 +25,7 @@ from app.llm.local_embed import get_embedder
 from app.ontology.actions import action_log
 from app import config
 from app.agents.registry import TOOLS, AgentRegistry
+from app.agents.tools import run_tools, format_tool_results
 
 _DATA = Path(config.DATA_DIR)
 _OPS_FILE = _DATA / "pending_ops.json"
@@ -197,6 +198,9 @@ def _detect_intent(question: str) -> list[tuple[str, dict, str]]:
 # ============================ Agent 执行 ============================
 def run_agent(agent: dict, question: str) -> dict:
     ctx = _read_context(agent, question)
+    # Phase 6：按问题里的信号词选工具、执行，把**有结果**的结构化证据并入上下文。
+    # 走规则路由而不是 function-calling，原因见 app/agents/tools.py 模块文档。
+    tool_res = run_tools(question)
     llm = get_llm()
     answer = ""
     intent: list[tuple[str, dict, str]] = []
@@ -214,7 +218,8 @@ def run_agent(agent: dict, question: str) -> dict:
         ref_text = "\n".join(
             [f"实体：{e['name']}" for e in ctx["entities"]] +
             [f"书摘：{h['text'][:200]}" for h in ctx["chunks"][:4]] +
-            [f"史料：{s['work']} {s['text'][:120]}" for s in ctx["sources"]])
+            [f"史料：{s['work']} {s['text'][:120]}" for s in ctx["sources"]] +
+            format_tool_results(tool_res))
         raw = ""
         try:
             raw = llm.chat(system, f"问题：{question}\n可参考：\n{ref_text}")
@@ -227,7 +232,8 @@ def run_agent(agent: dict, question: str) -> dict:
                                 "chunks": [{"book_id": h["book_id"], "idx": h["idx"],
                                             "text": h["text"][:240]}
                                            for h in ctx["chunks"][:4]],
-                                "sources": ctx["sources"]}}
+                                "sources": ctx["sources"],
+                                "tools": tool_res}}
         answer, ops_raw = _split_ops(raw)
         for op in ops_raw:
             act = op.get("action")
@@ -253,7 +259,8 @@ def run_agent(agent: dict, question: str) -> dict:
                                     "idx": h["idx"],
                                     "text": h["text"][:240]}
                                    for h in ctx["chunks"][:4]],
-                        "sources": ctx["sources"]}}
+                        "sources": ctx["sources"],
+                        "tools": tool_res}}
 
 
 def _split_ops(raw: str) -> tuple[str, list[dict]]:
