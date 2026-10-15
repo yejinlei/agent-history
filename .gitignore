@@ -13,6 +13,8 @@
 # ---- Node 前端 ----
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
+frontend/**/*.tsbuildinfo
 
 # ---- 密钥 / 环境变量（绝不入库）----
 # 真实密钥只存在于 backend/.env；仓库里只提交 .env.example（占位符，无密钥）

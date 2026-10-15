@@ -14,6 +14,9 @@ const COLORS: Record<KGLabel, string> = {
   Artifact: "#b45309",
   Concept: "#db2777",
 };
+/** 单次渲染安全上限：超过则截断，避免 canvas 直接卡死 */
+const HARD_NODE_CAP = 1500;
+const HARD_EDGE_CAP = 6000;
 const LABEL_CN: Record<KGLabel, string> = {
   Dynasty: "政权", Event: "事件", Person: "人物", Place: "地点", Book: "书源",
   Institution: "机构", Artifact: "文物", Concept: "观念",
@@ -74,10 +77,13 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
   /* ---------- 合并子图（保留旧节点位置，避免全图重排） ---------- */
   const mergeGraph = useCallback(
     (g: { nodes: KGNode[]; edges: KGEdge[] }, reset = false) => {
+      // 硬上限：服务端已限流，这里再加一层兜底，防意外大响应把 canvas 打挂
+      const nodesIn = g.nodes.length > HARD_NODE_CAP
+        ? g.nodes.slice(0, HARD_NODE_CAP) : g.nodes;
       setNodes((prev) => {
         const map = new Map<string, GNode>();
         (reset ? [] : prev).forEach((n) => map.set(n.id, { ...n }));
-        g.nodes.forEach((n) => {
+        nodesIn.forEach((n) => {
           const ex = map.get(n.id);
           if (ex) {
             ex.name = n.name; ex.sub = n.sub; ex.label = n.label;
@@ -91,11 +97,14 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
         const map = new Map<string, GLink>();
         (reset ? [] : prev).forEach((l) =>
           map.set(l.id, { ...l, source: idOf(l.source), target: idOf(l.target) }));
-        g.edges.forEach((e) => {
+        let added = 0;
+        for (const e of g.edges) {
+          if (added >= HARD_EDGE_CAP) break;
           if (!map.has(e.id)) {
             map.set(e.id, { id: e.id, source: e.source, target: e.target, rel: e.rel });
+            added += 1;
           }
-        });
+        }
         return [...map.values()];
       });
     }, []);
@@ -105,17 +114,22 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
     setLoaded(false);
     const fitSoon = () =>
       setTimeout(() => fgRef.current?.zoomToFit(500, 44), 250);
-    // 优先级：选中实体 > 当前朝代 > 全图
-    const focusId = centerId || dynastyId || null;
-    if (focusId) {
-      setBusy(focusId);
-      api.kgSubgraph(focusId)
-        .then((g) => { mergeGraph(g, true); setSelected(focusId); fitSoon(); })
+    // 优先级：选中实体（1-hop）> 当前朝代（2-hop 上限 2000 边）> Top-K 度中心 hub
+    if (centerId) {
+      setBusy(centerId);
+      api.kgSubgraph(centerId)
+        .then((g) => { mergeGraph(g, true); setSelected(centerId); fitSoon(); })
+        .finally(() => { setBusy(null); setLoaded(true); });
+    } else if (dynastyId) {
+      setBusy(dynastyId);
+      api.kgSubgraph(dynastyId, 2)
+        .then((g) => { mergeGraph(g, true); setSelected(dynastyId); fitSoon(); })
         .finally(() => { setBusy(null); setLoaded(true); });
     } else {
-      api.kgWhole()
+      setBusy("hub");
+      api.kgHub(40)
         .then((g) => { mergeGraph(g, true); fitSoon(); })
-        .finally(() => setLoaded(true));
+        .finally(() => { setBusy(null); setLoaded(true); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerId, dynastyId]);
@@ -147,6 +161,7 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
     setSelected(n.id);
     setBusy(n.id);
     try {
+      // 展开用 1-hop 增量并入，避免每次点击都注入一整片 2-hop 邻居
       mergeGraph(await api.kgSubgraph(n.id));
       fgRef.current?.d3ReheatSimulation();
     } finally {
@@ -157,7 +172,7 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
   const jumpTo = useCallback((n: KGNode) => {
     setSelected(n.id);
     setBusy(n.id);
-    api.kgSubgraph(n.id)
+    api.kgSubgraph(n.id, 2)
       .then((g) => {
         mergeGraph(g, true);
         setTimeout(() => fgRef.current?.zoomToFit(500, 44), 250);
@@ -178,7 +193,9 @@ export default function GraphExplorer({ centerId, dynastyId, embedded, onSelect,
 
   const loadWhole = () => {
     setBusy("whole");
-    api.kgWhole()
+    // "全图"= 度中心概览（Top-100 节点的邻域），真正的全量 60 万级
+    // 图不可能塞进 canvas，故退化为 hub 视图并给足规模。
+    api.kgHub(100)
       .then((g) => { mergeGraph(g, true); setSelected(null); })
       .finally(() => setBusy(null));
   };

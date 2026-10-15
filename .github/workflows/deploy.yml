@@ -1,0 +1,81 @@
+# ChronoSino 离线演示版 → GitHub Pages 部署
+#
+# 说明：
+#   离线烘焙脚本 `backend/scripts/bake_offline.py` 依赖本机 Kuzu/DuckDB
+#   数据（C:\agent-history-data\），无法在 GitHub Actions 里跑。
+#   所以工作流只负责「构建 dist + 部署到 Pages」这一步：
+#     1) 本地跑 bake_offline.py 生成 frontend/public/demo/*.json
+#     2) git add + commit + push 到 main
+#     3) 本 workflow 自动触发：npm build:offline → upload → deploy-pages
+#
+# 触发：
+#   - push 到 main（自动）
+#   - Actions 页面手动触发（workflow_dispatch）
+name: Deploy offline demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy.yml"
+      - "frontend/public/demo/**"
+  workflow_dispatch:
+
+# 允许 workflow 修改仓库（Pages 需要）
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署跑；排队时不自动取消前一个
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build offline bundle
+        # scripts/build-offline.mjs 已注入 VITE_BASE=./、VITE_OFFLINE=1
+        run: npm run build:offline
+        working-directory: frontend
+
+      - name: Sanity check — demo data must be present in dist
+        run: |
+          test -f dist/index.html
+          test -f dist/demo/hub.json
+          test -f dist/demo/schema.json
+          test -f dist/demo/search.json
+          test -f dist/demo/manifest.json
+          ls dist/demo/subgraphs | wc -l | awk '{ if ($1 < 1) exit 1; print "subgraphs:", $1 }'
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload dist artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

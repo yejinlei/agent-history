@@ -2,10 +2,20 @@ import type {
   ActionEntry, AgentDef, AgentTool, Book, ChatResp, Claim, ClaimConflict, Dynasty, EntityDetail, EntityKind, EventItem, KGNode, KGSchema, KGSubgraph, MergePayload, OntologyIndex, PendingOp, Proposal, TlEvent,
 } from "./types";
 
+/** 离线演示开关：VITE_OFFLINE=1 时，KG 相关接口读 public/demo/*.json 静态文件 */
+const OFFLINE = (import.meta.env.VITE_OFFLINE ?? "") === "1";
+// 相对路径，兼容 GHP 挂在 /repo-name/ 下的场景
+const DEMO_BASE = "demo";
+
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return r.json() as Promise<T>;
+}
+
+/** URL 路径段编码：Python `str.isalnum()` 语义——Unicode 字母/数字保留，其他换成 _ */
+function _safe(id: string): string {
+  return id.replace(/[^\p{L}\p{N}]/gu, "_");
 }
 
 async function postJSON<T>(url: string, body?: unknown): Promise<T> {
@@ -79,11 +89,43 @@ export const api = {
   unmount: (book_id: string) =>
     postJSON<{ ok: boolean }>("/api/mounts/unmount", { book_id }),
   ontology: () => getJSON<OntologyIndex>("/api/ontology"),
-  kgSchema: () => getJSON<KGSchema>("/api/kg/schema"),
-  kgNodes: (table: string, q: string) =>
-    getJSON<KGNode[]>(`/api/kg/nodes?table=${encodeURIComponent(table)}&q=${encodeURIComponent(q)}`),
-  kgSubgraph: (id: string) => getJSON<KGSubgraph>(`/api/kg/subgraph/${encodeURIComponent(id)}`),
-  kgWhole: () => getJSON<KGSubgraph>("/api/kg/whole"),
+  kgSchema: async () =>
+    OFFLINE
+      ? getJSON<KGSchema>(`${DEMO_BASE}/schema.json`)
+      : getJSON<KGSchema>("/api/kg/schema"),
+  kgNodes: async (table: string, q: string) => {
+    if (OFFLINE) {
+      const idx = await getJSON<Record<string, KGNode[]>>(`${DEMO_BASE}/search.json`);
+      const pool = idx[table] ?? [];
+      const needle = q.trim().toLowerCase();
+      if (!needle) return pool;
+      return pool.filter(
+        (n) => n.name.toLowerCase().includes(needle));
+    }
+    return getJSON<KGNode[]>(
+      `/api/kg/nodes?table=${encodeURIComponent(table)}&q=${encodeURIComponent(q)}`);
+  },
+  kgSubgraph: async (id: string, depth = 1) => {
+    if (OFFLINE) {
+      // 离线只支持 1-hop；depth>=2 复用 1-hop 结果（前端会做合并展示）
+      return getJSON<KGSubgraph>(`${DEMO_BASE}/subgraphs/${_safe(id)}.json`);
+    }
+    return getJSON<KGSubgraph>(
+      `/api/kg/subgraph/${encodeURIComponent(id)}${depth > 1 ? `?depth=${depth}` : ""}`);
+  },
+  kgHub: async (limit = 40) =>
+    OFFLINE
+      ? getJSON<KGSubgraph>(`${DEMO_BASE}/hub.json`)
+      : getJSON<KGSubgraph>(`/api/kg/hub?limit=${limit}`),
+  kgWhole: async (limitNodes = 0, limitEdges = 0) => {
+    if (OFFLINE) {
+      // 离线的"全图"就是 hub 图
+      return getJSON<KGSubgraph>(`${DEMO_BASE}/hub.json`);
+    }
+    return getJSON<KGSubgraph>(
+      `/api/kg/whole${limitNodes || limitEdges
+        ? `?limit_nodes=${limitNodes}&limit_edges=${limitEdges}` : ""}`);
+  },
 
   /* ---- 书库上传 / 删除 ---- */
   uploadBook: (file: File, title?: string) => {

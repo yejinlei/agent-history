@@ -498,12 +498,31 @@ def kg_nodes(table: str, q: str = "", limit: int = 40):
 
 
 @router.get("/kg/subgraph/{node_id}")
-def kg_subgraph(node_id: str):
-    """以节点为中心的一度邻域子图（点击节点展开）。"""
-    g = store.kg_subgraph(node_id)
+def kg_subgraph(node_id: str, depth: int = 1):
+    """以节点为中心的深度邻域子图（默认 1 跳；depth 越大返回节点越多）。"""
+    if depth == 1:
+        g = store.kg_subgraph(node_id)
+    else:
+        g = store.kg_ego(node_id, depth=depth, limit_edges=1500)
     if g is None:
         raise HTTPException(404, "node not found")
     return g
+
+
+@router.get("/kg/hub")
+def kg_hub(limit: int = 30, limit_edges: int = 1500):
+    """Top-K 度中心节点的一跳邻域：图库默认视图，规模可控。"""
+    return store.kg_hub(limit=limit, limit_edges=limit_edges)
+
+
+@router.get("/kg/whole")
+def kg_whole(limit_nodes: int = 0, limit_edges: int = 0):
+    """全图：全部 KGREL 端点与边。
+
+    `limit_nodes / limit_edges` 非零时在数据库层裁剪，前端"全图"按钮
+    默认带 500/5000 上限，避免渲染层因节点量失控而卡死。
+    """
+    return store.kg_whole(limit_nodes=limit_nodes, limit_edges=limit_edges)
 
 
 @router.get("/graph/query")
@@ -529,12 +548,6 @@ def graph_query(year_from: int | None = None, year_to: int | None = None,
     return {"items": warehouse.query_entities(
         year_from=year_from, year_to=year_to, bbox=box,
         kind=kind, book_id=book_id, limit=limit)}
-
-
-@router.get("/kg/whole")
-def kg_whole():
-    """全图：全部 KGREL 端点与边。"""
-    return store.kg_whole()
 
 
 # ---------------- 对话（Agent 图） ----------------

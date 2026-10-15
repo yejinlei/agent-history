@@ -1469,6 +1469,184 @@ class Store:
                 return rows[0]
         return None
 
+    @staticmethod
+    def _qsid(s: str) -> str:
+        """把字符串安全包成 Cypher 单引号字面量。"""
+        return "'" + str(s).replace("'", "''") + "'"
+
+    def _load_neighbours(self, ids: list[str],
+                         nodes: dict[str, dict], edges: dict[str, dict],
+                         limit_edges: int | None = None) -> None:
+        """把 `ids` 集合的所有一阶邻居（节点+边）并到 nodes/edges 中。
+
+        关键性能优化：先跑完 (forward, reverse) × 9 标签的邻居扫描，
+        收集"缺详情的邻居 id" 集合，再用 `WHERE n.id IN [...]` 按标签
+        批量补齐节点详情——避免每条边一次 `_node_rows` 的 N+1 开销。
+
+        ⚠️ 中止（达到 limit_edges）前也必须 flush 已收集的 pending，
+        否则边上引用的邻居节点会缺失（离线烘焙的 subgraphs/*.json
+        就因此只有中心节点，边却指向一堆"看不见的" Event 节点）。
+        """
+        def _flush(pending: dict[str, set[str]]) -> None:
+            """把 pending 里的邻居节点批量 IN 查询补进 nodes。"""
+            for lbl, mids in pending.items():
+                if not mids:
+                    continue
+                try:
+                    cols = self._node_cols(lbl)
+                    proj = ", ".join(f"n.{c}" for c in cols)
+                    in_list = "[" + ",".join(
+                        self._qsid(m) for m in mids) + "]"
+                    for d in self._all(
+                            f"MATCH (n:{lbl}) WHERE n.id IN {in_list} "
+                            f"RETURN {proj}"):
+                        d["_label"] = lbl
+                        nodes[d["id"]] = self._kg_node(d)
+                except Exception:
+                    # 退化为逐个查，避免整批丢
+                    for mid in mids:
+                        if mid in nodes:
+                            continue
+                        try:
+                            rows = self._node_rows(
+                                lbl, "WHERE n.id = $id", {"id": mid}, 1)
+                            if rows:
+                                rows[0]["_label"] = lbl
+                                nodes[mid] = self._kg_node(rows[0])
+                        except Exception:
+                            pass
+
+        for node_id in ids:
+            if limit_edges is not None and len(edges) >= limit_edges:
+                return
+            center = self._find_node(node_id)
+            if center is None:
+                continue
+            clabel = center["_label"]
+            if node_id not in nodes:
+                nodes[node_id] = self._kg_node(center)
+
+            pending: dict[str, set[str]] = {}  # lbl -> {nid}
+            stop_here = False
+
+            def _attach(mid: str, lbl: str, rel: str, forward: bool) -> bool:
+                """每次调用加一条边；返回 True 表示已达上限应中止。"""
+                if limit_edges is not None and len(edges) >= limit_edges:
+                    return True
+                if mid not in nodes:
+                    pending.setdefault(lbl, set()).add(mid)
+                s, t = (node_id, mid) if forward else (mid, node_id)
+                eid = f"{s}->{t}:{rel}"
+                edges.setdefault(eid, {"id": eid, "source": s,
+                                       "target": t, "rel": rel})
+                return False
+
+            for lbl in self._KG_LABELS:
+                if limit_edges is not None and len(edges) >= limit_edges:
+                    stop_here = True
+                    break
+                if not self._has_table(lbl):
+                    continue
+                # 关键：把预算透传到 Cypher 的 LIMIT，避免 Kuzu 层
+                # 吐上千行再被 Python 丢弃（qsh 这种超枢纽一次 forward 就是 7000+）。
+                for forward in (True, False):
+                    remaining = (limit_edges - len(edges)) if limit_edges else 0
+                    if remaining <= 0:
+                        stop_here = True
+                        break
+                    arrow = (f"MATCH (n:{clabel} {{id:$id}})-[r:KGREL]->(m:{lbl}) "
+                             if forward else
+                             f"MATCH (n:{clabel} {{id:$id}})<-[r:KGREL]-(m:{lbl}) ")
+                    try:
+                        rows = self._all(
+                            arrow + "RETURN m.id, r.rel LIMIT "
+                            + str(remaining),
+                            {"id": node_id})
+                    except Exception:
+                        continue
+                    for mid, rel in rows:
+                        if _attach(mid, lbl, rel, forward):
+                            stop_here = True
+                            break
+                    if stop_here:
+                        break
+
+            # 无论是否中止，都要把已收集 pending 的邻居节点补齐
+            # （否则边会引用一堆缺失节点）
+            _flush(pending)
+
+    def kg_ego(self, node_id: str, depth: int = 2,
+               limit_edges: int = 1500, limit_nodes: int = 800) -> dict | None:
+        """以 node_id 为中心的 depth 跳局部邻域，带边/节点上限。
+
+        替代前端"点击节点就拉全图"的旧行为：一次 hop 只并一跳邻居，
+        每跳后再扩展；`limit_edges / limit_nodes` 保证返回包不会失控。
+        """
+        depth = max(1, min(int(depth), 3))
+        root = self._find_node(node_id)
+        if root is None:
+            return None
+        nodes: dict[str, dict] = {}
+        edges: dict[str, dict] = {}
+        nodes[node_id] = self._kg_node(root)
+        frontier = [node_id]
+        for _ in range(depth):
+            if not frontier or len(edges) >= limit_edges:
+                break
+            if len(frontier) > limit_nodes:
+                frontier = frontier[:limit_nodes]
+            self._load_neighbours(frontier, nodes, edges, limit_edges)
+            # 下一层要展开的是本轮新加的节点（保持一定规模避免下一轮爆炸）
+            new = [n for n in list(nodes.keys()) if n not in set(frontier)]
+            frontier = new[:limit_nodes]
+        return {"center": node_id, "nodes": list(nodes.values()),
+                "edges": list(edges.values())}
+
+    def kg_hub(self, limit: int = 30,
+               limit_edges: int = 1500,
+               per_hub_edges: int = 80) -> dict:
+        """按度中心取 Top-K 节点，并返回它们的一跳邻域。
+
+        用作图库默认视图：既保留"能看见全貌的入口"，又把一次请求的
+        规模压到前端 force-graph 舒服渲染的量级（<~1500 边）。
+
+        `per_hub_edges` 限制单个 hub 展开的边数——库里存在度数上千的
+        超枢纽（如"秦汉"这类枢纽朝代），不封顶会让第一个 hub 就吃掉
+        整个额度。
+        """
+        limit = max(1, min(int(limit), 60))
+        hub_rows: list[tuple[str, int]] = []
+        for lbl in self._KG_LABELS:
+            if not self._has_table(lbl):
+                continue
+            try:
+                for nid, deg in self._all(
+                        f"MATCH (a:{lbl})-[r:KGREL]-() "
+                        "RETURN a.id AS id, count(r) AS d "
+                        "ORDER BY d DESC LIMIT 12"):
+                    try:
+                        hub_rows.append((str(nid), int(deg)))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        # 按度数降序取 top K
+        hub_rows.sort(key=lambda x: -x[1])
+        hub_rows = hub_rows[:limit]
+        nodes: dict[str, dict] = {}
+        edges: dict[str, dict] = {}
+        # 用快照方式做 per_hub 边数封顶
+        for nid, _deg in hub_rows:
+            if nid in nodes:
+                continue  # 之前作为别的 hub 的邻居进来过，无需重复展开
+            if len(edges) >= limit_edges:
+                break
+            before = len(edges)
+            self._load_neighbours([nid], nodes, edges,
+                                  per_hub_edges + before)
+        return {"center": None, "nodes": list(nodes.values()),
+                "edges": list(edges.values())}
+
     def kg_subgraph(self, node_id: str) -> dict | None:
         center = self._find_node(node_id)
         if center is None:
@@ -1506,19 +1684,35 @@ class Store:
         return {"center": node_id, "nodes": list(nodes.values()),
                 "edges": list(edges.values())}
 
-    def kg_whole(self) -> dict:
-        """全图：所有 KGREL 端点节点 + 全部已解析边（悬空边无节点不可视化）。"""
+    def kg_whole(self, limit_nodes: int = 0,
+                 limit_edges: int = 0) -> dict:
+        """全图：所有 KGREL 端点节点 + 全部已解析边（悬空边无节点不可视化）。
+
+        `limit_nodes / limit_edges` 非零时从数据库层直接限制，避免
+        把几十万节点/边拉进 Python 再截断。
+        """
         nodes: dict[str, dict] = {}
         edges: dict[str, dict] = {}
         # 节点按标签分表取（显式列名，避开坏列），边只取两端 id
         for lbl in self._KG_LABELS:
             if not self._has_table(lbl):
                 continue
-            for d in self._node_rows(lbl):
+            if limit_nodes and len(nodes) >= limit_nodes:
+                break
+            rows = self._node_rows(lbl, limit=limit_nodes or 0)
+            for d in rows:
                 d["_label"] = lbl
                 nodes.setdefault(d["id"], self._kg_node(d))
-        for a, b, rel in self._all(
-                "MATCH (a)-[r:KGREL]->(b) RETURN a.id, b.id, r.rel"):
+                if limit_nodes and len(nodes) >= limit_nodes:
+                    break
+        if limit_edges:
+            rows = self._all(
+                "MATCH (a)-[r:KGREL]->(b) RETURN a.id, b.id, r.rel "
+                f"LIMIT {int(limit_edges)}")
+        else:
+            rows = self._all(
+                "MATCH (a)-[r:KGREL]->(b) RETURN a.id, b.id, r.rel")
+        for a, b, rel in rows:
             if a not in nodes or b not in nodes:
                 continue
             eid = f"{a}->{b}:{rel}"
