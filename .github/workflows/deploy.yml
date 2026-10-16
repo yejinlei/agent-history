@@ -61,12 +61,16 @@ jobs:
 
       - name: Sanity check — demo data must be present in dist
         run: |
+          set -e
           test -f dist/index.html
           test -f dist/demo/hub.json
           test -f dist/demo/schema.json
           test -f dist/demo/search.json
           test -f dist/demo/manifest.json
-          ls dist/demo/subgraphs | wc -l | awk '{ if ($1 < 1) exit 1; print "subgraphs:", $1 }'
+          subgraphs=$(ls dist/demo/subgraphs | wc -l)
+          echo "subgraphs: $subgraphs"
+          if [ "$subgraphs" -lt 1 ]; then exit 1; fi
+        working-directory: frontend
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
